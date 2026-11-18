@@ -38,6 +38,31 @@ samples saved report snapshots. It does not interpolate data between them.
 Errors return a safe `code` and `message`, including 400 for invalid requests,
 404 for missing reports, and 500 if history is inaccessible.
 
+## Historical anomalies
+
+`GET /api/v1/anomalies` analyzes saved readings with these optional parameters:
+
+| Parameter | Default and accepted values |
+|---|---|
+| `metric` | `jmx.heap_used_bytes` (default) or `executor.queue_depth` |
+| `scenario` | `JVM` or `DEADLOCK` for heap, `EXECUTOR` for queue. Defaults are `JVM` and `EXECUTOR`. |
+| `from`, `to` | Inclusive UTC bounds. Only readings inside the range can contribute to the baseline. |
+| `limit` | 1–50 retained findings, default 20, in chronological order |
+| `minimum`, `windowSamples` | Minimum is 3 up to the window size, default 20. Window size is at most 100, default 60. |
+| `windowSeconds`, `cooldownSeconds` | Window 1–604800 (default 3600). Cooldown 0–604800 (default 300). |
+| `sensitivity`, `consecutive` | Sensitivity 1–20 (default 3.5). Consecutive comparisons 2–10 (default 2). |
+
+The result includes `state`, `metric`, `unit`, baseline sample counts,
+`latest` comparison, `findings`, and scan diagnostics. With insufficient history
+the state is `INSUFFICIENT_DATA` and `latest` is null. Comparisons include the
+observed value, baseline window, median, MAD, deviation, threshold, sample
+references and configuration. `CANDIDATE` is unconfirmed, `ALERT` is a
+sustained increase, and `COOLDOWN` is continuing pressure without a new alert.
+These findings do not change the archived incident list.
+
+The CLI accepts the same parameter names as `--name=value`, with the metric
+supplied as `--anomalies=METRIC` and an optional `--history-dir=DIR`.
+
 ## Storage and advisory limits
 
 The writer retains the most recent 200 valid reports. A scan visits at most

@@ -6,3 +6,4 @@ JFR recordings, heap dumps, credentials, and personal paths out of Git.
 
 - [GitHub documentation verification](github-verification.md)
 - [How to repeat the capture](../PROOF_OF_WORK.md)
+- [Phase 7 anomaly and benchmark verification](phase7-verification.md)

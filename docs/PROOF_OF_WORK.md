@@ -1,5 +1,7 @@
 # Proof of work
 
+See [Phase 7 verification](evidence/phase7-verification.md) for the anomaly demo and benchmark provenance.
+
 See the [local verification record](evidence/github-verification.md) for a
 dated capture with the Git base, working-tree status, command outcomes, and
 reviewed excerpts. The [capability matrix](CAPABILITIES.md) separates features

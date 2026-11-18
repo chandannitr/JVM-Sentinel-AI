@@ -3,6 +3,8 @@ package dev.jvmsentinel.server;
 import dev.jvmsentinel.ai.EvidenceBundle;
 import dev.jvmsentinel.detector.Severity;
 import dev.jvmsentinel.history.IncidentHistoryRepository;
+import dev.jvmsentinel.history.HistoricalAnomalies;
+import dev.jvmsentinel.history.HistoricalQuery;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.MultiValueMap;
@@ -99,6 +101,19 @@ final class HistoryApi {
                                 .findFirst().map(EvidenceBundle.Item::value).orElse(null))).toList());
         points.sort(Comparator.comparing(Point::capturedAt).thenComparing(Point::reportId));
         return new Timeline(metric.id(), metric.unit(), points, Diagnostics.from(result));
+    }
+
+    @GetMapping("/anomalies")
+    Anomalies anomalies(@RequestParam MultiValueMap<String, String> parameters) throws IOException {
+        new Query(parameters, HistoricalQuery.PARAMETERS.toArray(String[]::new));
+        HistoricalAnomalies.Request request;
+        try {
+            request = HistoricalQuery.parse(parameters.toSingleValueMap());
+        } catch (IllegalArgumentException invalid) {
+            throw new BadQuery(invalid.getMessage());
+        }
+        var stored = history.query();
+        return Anomalies.from(request, HistoricalAnomalies.fromReports(stored.reports(), request, Instant.now()), stored);
     }
 
     @GetMapping("/summary")

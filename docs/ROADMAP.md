@@ -21,7 +21,7 @@
 - [x] Reproducible executor saturation incident and bounded CPU workload
 - [x] JFR recordings and event counts alongside observed workload metrics
 - [ ] Automated JFR event correlation and JSONL incident export
-- [ ] Monitoring-overhead benchmark
+- [x] Exploratory monitoring-overhead benchmark (Phase 7)
 
 ## Phase 4 — Reproducible workloads
 - [x] Bounded executor saturation and CPU demonstrations integrated with JFR
@@ -36,9 +36,11 @@
 - [x] Reproducible end-to-end workload and dashboard walkthrough
 
 ## Phase 7 — Historical diagnostics and packaging
-- [ ] Anomaly correlation across sampling windows
-- [ ] Measured operational overhead and distribution packaging
-- [ ] Recruiter walkthrough with repeatable setup and actual captures
+- [x] Bounded anomaly analysis over saved heap and queue observations
+- [x] Measured OFF/ON sampler overhead and reproducible benchmark harness
+- [x] Local recruiter walkthrough and verification capture
+- [ ] Distribution packaging beyond the existing Maven JARs
+- [ ] Broader repeated overhead studies and recorded recruiter footage
 
 ## Resume-ready completion criteria
 Produce reproducible tests, clear benchmark methodology, a 2-minute demo,

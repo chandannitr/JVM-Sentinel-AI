@@ -19,7 +19,10 @@ flowchart TD
     VALIDATE --> OUT
     EVIDENCE --> HISTORY[Opt-in versioned history]
     VALIDATE --> HISTORY
-    HISTORY --> SERVER[Loopback read-only API]
+    HISTORY --> HISTORICAL[Bounded historical analysis]
+    HISTORICAL --> SERVER[Loopback read-only API]
+    HISTORICAL --> OUT
+    HISTORY --> SERVER
     SERVER --> DASH[Static dashboard]
 ```
 
@@ -91,9 +94,9 @@ JFR counts are observations for the recorded JVM and do not establish causation.
 ## Advisory processing
 
 The CLI maps numeric JMX, executor, CPU, and JFR values into an immutable
-\`EvidenceBundle\` with stable IDs. Rule adapters copy the code, severity, and
+`EvidenceBundle` with stable IDs. Rule adapters copy the code, severity, and
 capture time into predefined predicates with explicit supporting metric IDs.
-Unavailable measurements are marked \`not_collected\`. Raw incident text and
+Unavailable measurements are marked `not_collected`. Raw incident text and
 thread details are redacted at the request boundary.
 
 The CLI retains the first incident-bearing JMX sample, or the measured workload
@@ -127,6 +130,27 @@ DTOs. It reads the history at request time, so new CLI reports appear on refresh
 without restarting. The browser uses same-origin requests and text DOM nodes.
 The timeline displays discrete observations and marks missing metrics as gaps.
 Neither the server nor the dashboard performs inference or serves JFR files.
+
+## Historical anomaly analysis
+
+`sentinel-history` compares two persisted gauges using the existing metric
+IDs. Heap bytes are grouped by scenario and recorded maximum heap. Queue
+depth is grouped by executor scenario plus recorded worker and queue limits.
+Missing capacity resets the comparison. Invalid readings and duplicate IDs
+are skipped, and future timestamps are excluded. Missing or invalid readings
+break a consecutive increase. Analysis sorts by capture time and UUID and does
+not infer samples between reports.
+
+A comparison uses at most 100 prior observations within the configured duration.
+With the defaults, it needs 20 prior readings, uses up to 60 in the prior hour,
+and flags an increase at `max(metric floor, 3.5 × 1.4826 × MAD)` above the
+median. MAD is the median absolute deviation around that median. The floor
+is one task or 1 MiB, including zero-MAD baselines. Above-threshold samples stay
+out of the baseline. Two consecutive increases are required by default.
+Cooldown suppresses repeat alerts while retaining evidence of continuing pressure.
+Findings refer to the observed report plus the reports used for comparison.
+The CLI and API derive findings on request. They do not modify reports,
+feed the findings into Ollama, or add findings to the saved incident list.
 
 ## Limits of the starter
 - No remote JVM attachment or distributed agent.

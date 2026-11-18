@@ -1,264 +1,99 @@
 # JVM Sentinel AI
 
-A **local-first Core Java performance diagnostics project** demonstrating JVM metrics,
-platform-thread deadlock detection, deterministic incident evidence, and optional AI incident
-explanations using Ollama on localhost. **No cloud account or API key is required to run the MVP.**
+Local-first JVM diagnostics for Java 21. Reproduce deadlocks and executor saturation, inspect measured JMX and Java Flight Recorder (JFR) evidence, and investigate saved reports in a loopback dashboard.
 
-## Why this project?
+Deterministic rules identify incidents from measurements. Optional Ollama advisories cite those measurements and keep hypotheses separate from observed facts.
 
-A busy executor, blocked threads, and a CPU-bound workload call for different
-diagnostic checks. The included demos reproduce each condition locally and show
-the JVM evidence the tool actually collected.
+## Quickstart
 
-## Included
-- Six Maven modules covering collection, rules, AI, CLI, local history, and the dashboard
-- JMX monitoring (`MemoryMXBean`, `ThreadMXBean`) with immutable snapshots
-- Bounded asynchronous sampling with backpressure and failure counters, plus synchronous mode
-- Deadlock and heap occupancy rules with measured evidence, including bounded deadlock stacks
-- On-demand Java Flight Recorder (JFR) recording of the local JVM
-- Reproducible deadlock demonstration using daemon platform threads
-- Optional Ollama `/api/generate` integration using the Java 21 HTTP client
-- Opt-in incident history with a loopback REST API and offline dashboard
-- JUnit 5 tests and a portable `javac`-based smoke test
-- `AGENTS.md`: persistent project instructions for Codex inside IntelliJ IDEA
-
-## Requirements
-- **JDK 21** (`java -version` and `javac -version` should say 21)
-- IntelliJ IDEA (any version compatible with JDK 21)
-- Maven 3.9+ (optional for the quickstart; recommended for running unit tests)
-- Ollama (optional; required only for `--ai`)
-
-On macOS with Homebrew, a common setup is `brew install openjdk@21 maven`.
-Make sure IntelliJ uses a **JDK 21**, not only a JRE. IntelliJ can also download an appropriate JDK.
-
-## Import into IntelliJ IDEA
-1. Extract this zip, then **File → Open** in IntelliJ and select the `JVM-Sentinel-AI-Starter` folder.
-2. Trust the project if you recognize and trust the downloaded source.
-3. Select a **Java 21 SDK** in **File → Project Structure → Project → SDK**.
-4. Open the root `pom.xml` as a Maven project when prompted, or use the Maven tool window to reload.
-5. If using Maven, run `mvn test` from IntelliJ's Terminal. Dependencies may be downloaded on first run.
-
-## Run now (without Maven)
-Open Terminal inside the project root:
+Use a **Java 21 JDK** for both `java` and `javac`. The CLI launcher works without Maven.
 
 ```bash
-chmod +x scripts/*.sh
-./scripts/run-local.sh --help
-./scripts/run-local.sh --async --iterations=3 --interval-ms=500
-./scripts/run-local.sh --sync --iterations=2
-./scripts/run-local.sh --demo-backpressure
 ./scripts/run-local.sh --demo-deadlock
-./scripts/smoke-test.sh
 ```
 
-Expected demo incident: `PLATFORM_THREAD_DEADLOCK`.
-The daemon demo workers let the process exit normally. The report includes up to eight
-deadlocked platform threads, their lock owners, and up to 12 stack frames per thread.
+The demo intentionally deadlocks two daemon platform threads in its own JVM. Expect `PLATFORM_THREAD_DEADLOCK` with the blocked threads, their lock owners, and bounded stack traces.
+
+### Run the dashboard demo
+
+From the repository root with **Maven 3.9+** using Java 21:
 
 ```bash
-./scripts/run-local.sh --demo-deadlock --record-jfr=2 --jfr-summary --jfr-output=.local-build/jfr
-"$JAVA_HOME/bin/jfr" summary /path/to/sentinel-recording.jfr
+./scripts/demo-phase7.sh
 ```
 
-`--record-jfr` accepts 1–60 seconds. Each invocation writes a uniquely named recording and
-prints its absolute path. Use that path in the summary command and set `JAVA_HOME` to your JDK 21. The default output directory is `.local-build/jfr`.
-The recording enables thread sleeps, monitor contention of at least 10 ms, garbage
-collection, and CPU load and execution sampling when supported by JFR. `--jfr-summary` prints observed counts for those events, including zero counts. A short run may contain few events. Keep recordings local if thread
-names or stack traces contain sensitive information.
+Open [http://127.0.0.1:8081/](http://127.0.0.1:8081/). The launcher creates isolated history, saves a baseline observation, an executor saturation incident, and a CPU workload observation with JFR counts. Select the executor incident to inspect the worker and queue evidence. The Historical anomalies panel reports insufficient data when the demo has too few comparable readings.
 
-The backpressure demo offers collection work every 1 ms, allows one queued job, and
-adds 50 ms to each reporting job. It runs at least three attempts and prints the
-collection, processing, drop, and failure counters to stderr.
+The launcher builds offline by default. Use `--online` to download dependencies on the first run, `--port=18087` if the port is occupied, or `--verify-only` for a run that checks the HTTP endpoints and then stops. Press **Ctrl+C** to stop an interactive run. Ollama is optional.
 
-## Reproducible workload demos
+For persistent history outside the walkthrough, use `--save-report` on a CLI command and launch the server against the same history directory. See the [standalone dashboard instructions](docs/REPRODUCIBLE_DEMO.md#inspect-history-and-the-dashboard).
 
-```bash
-./scripts/run-local.sh --demo-executor-saturation
-./scripts/run-local.sh --demo-cpu-load
-./scripts/run-local.sh --demo-executor-saturation --record-jfr=5 --jfr-summary
-./scripts/run-local.sh --demo-cpu-load --cpu-seconds=2 --record-jfr=5 --jfr-summary
-```
+## What you can inspect
 
-The executor demo holds two workers with a latch, fills four queue slots, then
-attempts one more submission and counts its rejection. `EXECUTOR_SATURATION`
-fires when active workers reach the worker limit and queued tasks reach queue
-capacity. The report shows rejection separately from that rule. Queueing can
-occur with zero JFR monitor events.
-
-The CPU demo uses one interruptible arithmetic worker for two seconds by
-default. `--cpu-seconds=1..5` changes the duration. Output includes measured elapsed
-time, completed operations, and worker CPU time when the JVM exposes it. The
-single workload measurement does not establish system-wide CPU pressure.
-
-Use one demo flag per run. The new workload demos run independently of periodic
-JMX sampling. Combined recordings start before the workload and require it to
-finish within the recording window. For CPU runs, choose a recording duration
-longer than the requested workload duration. Short recordings can legitimately
-show zero execution samples or GC events. Counts describe the saved recording.
-
-## Local incident history and dashboard
-
-From the repository root, run the two demos and then start the dashboard.
-Ollama is optional.
+| Capability | Evidence |
+|---|---|
+| Bounded asynchronous sampling | JMX heap and thread readings, with backpressure, retry and failure counters |
+| Deterministic incidents | Platform-thread deadlock, heap pressure, and executor saturation, with rule predicates and measured evidence |
+| CPU workload and JFR | Completed arithmetic operations, elapsed time, available thread CPU time, and observed recording event counts |
+| Local history and REST API | Versioned reports, incident filters, and timelines of saved measurements |
+| Historical analysis | Rolling median and median absolute deviation for comparable heap and queue readings, with evidence references and cooldown |
+| Optional AI advisory | Local Ollama output checked against a schema and the report's evidence IDs, with deterministic fallback |
 
 ```bash
+./scripts/run-local.sh --demo-backpressure
 ./scripts/run-local.sh --demo-executor-saturation --save-report
 ./scripts/run-local.sh --demo-cpu-load --record-jfr=5 --jfr-summary --save-report
-mvn -pl sentinel-server -am package -DskipTests && java -jar sentinel-server/target/sentinel-server-0.1.0-SNAPSHOT.jar
+./scripts/run-local.sh --anomalies=executor.queue_depth
 ```
 
-Open [the dashboard](http://127.0.0.1:8080/). Select the executor incident to see
-the measured queue and worker counts. Select the CPU observation under Recent
-reports for workload metrics and JFR counts. The server reads saved documents on
-refresh. The first Maven build may download the pinned server dependencies.
-Once cached, you can add `-o` to the Maven build command.
+The CLI and standalone server default to `.local-build/history` relative to their working directories. For a custom location, set CLI `--history-dir=DIR` and server `--sentinel.history-dir=DIR` to the same path. The history writer retains up to 200 valid reports. Historical comparisons require 20 prior comparable samples by default.
 
-```bash
-curl -fsS 'http://127.0.0.1:8080/api/v1/reports?limit=10'
-```
+## Verification and measured overhead
 
-Excerpt from a local `/api/v1/summary` response after running the two demos:
+The [Phase 7 verification record](docs/evidence/phase7-verification.md) documents **68 passing tests**, a live loopback API check, browser rendering, and an isolated benchmark with **10 trials per mode**.
 
-```json
-{
-  "totalReports": 2,
-  "totalIncidents": 1,
-  "byCode": {"EXECUTOR_SATURATION": 1},
-  "bySeverity": {"WARNING": 1}
-}
-```
+| Monitoring | Median throughput |
+|---|---:|
+| Off | 734.673 million operations/s |
+| On | 733.960 million operations/s |
 
-The default history path is `.local-build/history` relative to the process
-working directory. From different working directories, set both CLI
-`--history-dir=/absolute/path` and server `--sentinel.history-dir=/absolute/path`.
-The server port can be changed with `--server.port=8081`. To reproduce an empty
-history, run the same JAR with `--server.port=8081 --sentinel.history-dir=.local-build/empty-history`
-using an unused path.
-
-Each `--save-report` invocation saves one measured report. It prefers the first
-incident-bearing snapshot during periodic monitoring and otherwise saves the
-first observation. The store retains the latest 200 valid reports by capture
-time. History and the API retain measured facts, deterministic findings, and
-optional advisory metadata. Free-form AI prose, stacks, and raw JFR files stay
-out of the history API. Timeline points come from saved reports, with gaps
-where a metric was unavailable. See the [API and history contract](sentinel-server/README.md).
-
-## Run with Maven
+The measured median-based throughput overhead was **+0.097%** for this fixed arithmetic workload. The ranges overlapped. This is an exploratory result for one machine and configuration. See the [benchmark method, controls, and full aggregates](docs/BENCHMARKS.md).
 
 ```bash
 mvn test
-mvn package
-java -jar sentinel-cli/target/sentinel-cli-0.1.0-SNAPSHOT.jar --demo-deadlock
+./scripts/smoke-test.sh
+./scripts/benchmark-overhead.sh --self-check
+./scripts/benchmark-overhead.sh --trials 10
 ```
 
-## Optional local AI advisory
+Benchmarks require Python 3 and store raw results under `.local-build/benchmarks/`. The [Java 21 CI workflow](.github/workflows/ci.yml) runs Maven tests and the CLI smoke check. For local publication evidence, run `bash scripts/capture-github-proof.sh` and review the logs before sharing. [Proof of work](docs/PROOF_OF_WORK.md)
 
-Install Ollama from https://ollama.com and pull the model before running the demos.
+## Architecture
+
+The CLI runs controlled workloads and prints observations and rule findings. An opt-in history writer saves bounded JSON reports. Spring Boot is confined to the read-only loopback API and static dashboard.
+
+| Module | Responsibility |
+|---|---|
+| `sentinel-core` | JMX, JFR, immutable snapshots, and bounded sampling |
+| `sentinel-detector` | Deterministic JVM and executor rules |
+| `sentinel-ai` | Loopback Ollama transport and evidence validation |
+| `sentinel-history` | Versioned report storage, retention, and historical comparisons |
+| `sentinel-cli` | Workload demos, evidence presentation, and benchmark trials |
+| `sentinel-server` | REST API and dashboard |
+
+[Architecture and data flow](docs/ARCHITECTURE.md) · [API contract](sentinel-server/README.md) · [Capabilities and roadmap](docs/CAPABILITIES.md)
+
+## Optional local Ollama advisory
+
+With Ollama running locally and the model installed:
 
 ```bash
 ollama pull llama3.2:3b
-# In a separate terminal, if Ollama is not running
-ollama serve
-
-./scripts/run-local.sh --demo-deadlock --ai
-./scripts/run-local.sh --demo-executor-saturation --record-jfr=5 --jfr-summary --ai
-./scripts/run-local.sh --demo-cpu-load --record-jfr=5 --jfr-summary --ai
+./scripts/run-local.sh --demo-executor-saturation --ai
 ```
 
-`OLLAMA_MODEL` overrides the default `llama3.2:3b`. The CLI sends one request to
-`127.0.0.1:11434` after the workload, sampling, and any JFR recording finish.
-It sends allowlisted metrics and rule metadata. Thread names, stacks, raw logs,
-paths, and environment data stay out of the prompt. Connection and request
-timeouts are two and ten seconds, respectively. If the model is missing or its
-reply fails validation, the CLI keeps the deterministic report and displays the
-reason for the fallback.
+Set `OLLAMA_MODEL` to use another local model. Requests go to `127.0.0.1:11434` after sampling finishes. If the model is unavailable or the response fails validation, the CLI keeps the deterministic report. The recorded verification used offline advisory fixtures because the local endpoint was unavailable. [AI module guide](sentinel-ai/README.md)
 
-A validated executor advisory can look like this sanitized offline fixture:
+## Scope and limitations
 
-```text
-Observed facts
-  executor.active_workers = 2 workers
-  executor.max_workers = 2 workers
-  executor.queue_depth = 4 tasks
-  executor.queue_capacity = 4 tasks
-Deterministic detection
-  [WARNING] EXECUTOR_SATURATION
-  Rule: Active workers reach the worker limit and queued tasks reach queue capacity
-AI hypothesis
-  Possible explanation: Tasks may be slow to finish.
-Evidence references
-  executor.active_workers
-  executor.queue_depth
-Suggested next diagnostic steps
-  Measure task duration.
-Uncertainty/limitations
-  Model confidence: low (qualitative)
-  A snapshot cannot establish whether the condition persisted.
-```
-
-The cited IDs come from the executor snapshot's active worker and queued task
-counts. Model confidence is qualitative. CPU load remains observations-only,
-and execution-sample counts describe sampling. Short recordings can contain zero
-events. See the [AI module guide](sentinel-ai/README.md) for evidence mapping,
-validation limits, and offline fixture evaluation.
-
-## Reproducible proof
-
-- [Implemented and planned capabilities](docs/CAPABILITIES.md)
-- [Proof of work and captured results](docs/PROOF_OF_WORK.md)
-- [Two-minute demo](docs/REPRODUCIBLE_DEMO.md)
-- [Benchmark methodology](docs/BENCHMARKS.md)
-- [Security and limitations](docs/SECURITY_AND_LIMITATIONS.md)
-- [Publishing checklist](docs/PUBLISHING_CHECKLIST.md)
-
-Run `bash scripts/capture-github-proof.sh` to capture local evidence. Review
-the draft logs under `.local-build/` before publishing excerpts. The Java 21
-GitHub Actions workflow runs Maven and the CLI smoke test across the repository.
-The local capture does not establish a hosted CI result.
-
-## Enable Codex in IntelliJ IDEA
-1. **Settings → Plugins → Marketplace**: install JetBrains **AI Assistant**.
-2. Open **AI Chat** and select **Codex**.
-3. Send an initial message; follow **Install and Continue** if offered.
-4. Select **ChatGPT** as the login method, and complete account authorization.
-5. Choose **Workspace access** mode; do not enable full filesystem access by default.
-6. Ask Codex to read `AGENTS.md` and `docs/ROADMAP.md` before coding.
-
-See: https://www.jetbrains.com/help/ai-assistant/codex-agent.html
-
-## First Codex prompt
-
-> Read AGENTS.md, README.md and docs/ARCHITECTURE.md. First explain how the existing modules
-> work. Then implement Phase 2: bounded async metric sampling with a ScheduledExecutorService,
-> BlockingQueue, ThreadPoolExecutor, graceful shutdown, deterministic concurrency tests,
-> and backpressure metrics. Work in small increments. Run `mvn test` and
-> `./scripts/smoke-test.sh`; fix failures. Do not remove existing JVM metrics or detection logic.
-
-## Safety and accuracy
-- Monitors **only its own JVM**, not every process on your Mac.
-- A high heap ratio is a warning, not proof of a leak.
-- ThreadMXBean deadlock checking covers platform-thread lock deadlocks. Coverage excludes virtual-thread deadlocks and other causes of hangs.
-- AI suggestions are hypotheses based on provided sensor evidence.
-- Do not upload confidential company logs, proprietary code, or secrets.
-
-## Layout
-
-```text
-JVM-Sentinel-AI-Starter/
-├── pom.xml
-├── AGENTS.md
-├── README.md
-├── docs/
-│   ├── ARCHITECTURE.md
-│   └── ROADMAP.md
-├── sentinel-core/
-├── sentinel-detector/
-├── sentinel-ai/
-├── sentinel-history/
-├── sentinel-server/
-├── sentinel-cli/
-└── scripts/
-    ├── run-local.sh
-    ├── smoke-test.sh
-    └── capture-github-proof.sh
-```
+The collector observes its own JVM. Deadlock detection covers platform threads. Short JFR captures may contain zero events, and a single saturation snapshot does not establish sustained pressure. The timeline displays saved values and preserves gaps. Keep raw recordings, stack traces, and private logs local. [Security and limitations](docs/SECURITY_AND_LIMITATIONS.md)

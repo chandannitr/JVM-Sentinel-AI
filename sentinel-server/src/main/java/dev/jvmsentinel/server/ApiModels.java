@@ -3,6 +3,7 @@ package dev.jvmsentinel.server;
 import dev.jvmsentinel.ai.EvidenceBundle;
 import dev.jvmsentinel.history.IncidentHistoryRepository;
 import dev.jvmsentinel.history.StoredReport;
+import dev.jvmsentinel.history.HistoricalAnomalies;
 
 import java.time.Instant;
 import java.util.List;
@@ -83,6 +84,47 @@ final class ApiModels {
     record Timeline(String metric, String unit, List<Point> points, Diagnostics diagnostics) {
         Timeline { points = List.copyOf(points); }
     }
+    record AnomalyReference(UUID reportId, String evidenceId, Instant capturedAt) {
+        static AnomalyReference from(HistoricalAnomalies.Reference reference) {
+            return new AnomalyReference(reference.reportId(), reference.evidenceId(), reference.capturedAt());
+        }
+    }
+
+    record Comparison(AnomalyReference observation, double observedValue, double baselineMedian, double mad,
+                      double deviation, double threshold, int sampleCount, Instant baselineStart, Instant baselineEnd,
+                      List<AnomalyReference> baselineReferences, long capacity, long workerLimit,
+                      String signal, int consecutive, String incidentCode, String severity) {
+        Comparison { baselineReferences = List.copyOf(baselineReferences); }
+
+        static Comparison from(HistoricalAnomalies.Comparison value) {
+            if (value == null) return null;
+            var alert = value.signal() == HistoricalAnomalies.Signal.ALERT
+                    ? HistoricalAnomalies.incident(value) : null;
+            return new Comparison(AnomalyReference.from(value.observation()), value.observedValue(),
+                    value.baselineMedian(), value.mad(), value.deviation(), value.threshold(), value.sampleCount(),
+                    value.baselineStart(), value.baselineEnd(),
+                    value.baselineReferences().stream().map(AnomalyReference::from).toList(),
+                    value.configuration().capacity(), value.configuration().workers(), value.signal().name(),
+                    value.consecutive(), alert == null ? null : alert.code(),
+                    alert == null ? null : alert.severity().name());
+        }
+    }
+
+    record Anomalies(String metric, String unit, String scenario, String state, int usableSamples,
+                     int skippedSamples, int baselineSamples, int minimum, Comparison latest,
+                     List<Comparison> findings, Diagnostics diagnostics) {
+        Anomalies { findings = List.copyOf(findings); }
+
+        static Anomalies from(HistoricalAnomalies.Request request, HistoricalAnomalies.Result result,
+                              IncidentHistoryRepository.QueryResult history) {
+            return new Anomalies(request.series().metric().id(), request.series().metric().unit(),
+                    request.scenario().name(), result.state().name(), result.usableSamples(),
+                    result.skippedSamples(), result.baselineSamples(), request.settings().minimum(),
+                    Comparison.from(result.latest()), result.findings().stream().map(Comparison::from).toList(),
+                    Diagnostics.from(history));
+        }
+    }
+
     record Summary(int totalReports, int totalIncidents, long recentIncidents, Instant latestCapture,
                    Map<String, Long> byCode, Map<String, Long> bySeverity, Diagnostics diagnostics) {
         Summary {

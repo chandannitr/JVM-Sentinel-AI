@@ -80,6 +80,28 @@ class HistoryHttpTest {
             assertFalse(script.body().contains("innerHTML"));
             assertEquals(200, api.request("/dashboard.css", "GET").statusCode());
 
+            assertEquals("INSUFFICIENT_DATA", api.get("/api/v1/anomalies", 200).get("state"));
+            for (int index = 1; index <= 5; index++) {
+                Instant capturedAt = Instant.EPOCH.plusSeconds(index);
+                repo.save(new EvidenceBundle(EvidenceBundle.Scenario.EXECUTOR, capturedAt, List.of(
+                        new EvidenceBundle.Item(EvidenceBundle.Metric.QUEUE_DEPTH, index < 4 ? 1 : 4),
+                        new EvidenceBundle.Item(EvidenceBundle.Metric.QUEUE_CAPACITY, 4),
+                        new EvidenceBundle.Item(EvidenceBundle.Metric.MAX_WORKERS, 2)),
+                        List.of(), List.of()), StoredReport.Origin.CLI, null);
+            }
+            var anomalies = api.get("/api/v1/anomalies?metric=executor.queue_depth&minimum=3&limit=1", 200);
+            assertEquals("READY", anomalies.get("state"));
+            var finding = (Map<?, ?>) ((List<?>) anomalies.get("findings")).getFirst();
+            assertEquals("ALERT", finding.get("signal"));
+            assertEquals("HISTORICAL_METRIC_INCREASE", finding.get("incidentCode"));
+            assertEquals(3, ((List<?>) finding.get("baselineReferences")).size());
+            assertEquals(BigDecimal.ONE, api.get("/api/v1/incidents", 200).get("total"));
+            for (String query : List.of("metric=executor.rejected_tasks", "minimum=2", "limit=51",
+                    "metric=executor.queue_depth&scenario=JVM", "sensitivity=NaN", "from=invalid",
+                    "from=2020-01-01T00:00:00Z&to=2019-01-01T00:00:00Z")) {
+                assertEquals("invalid_request", api.get("/api/v1/anomalies?" + query, 400).get("code"));
+            }
+
             Path moved = directory.resolve("existing");
             Files.move(root, moved);
             Files.createSymbolicLink(root, moved);

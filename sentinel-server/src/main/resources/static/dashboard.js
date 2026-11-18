@@ -11,6 +11,7 @@ let chosenTimeline;
 let loadVersion = 0;
 let detailVersion = 0;
 let timelineVersion = 0;
+let anomalyVersion = 0;
 
 function element(tag, text, css) {
   const result = document.createElement(tag);
@@ -54,7 +55,7 @@ async function refresh() {
     showReports(reports);
     const reportId = selection ?? incidents.items[0]?.reportId ?? reports.items[0]?.reportId;
     if (reportId) await showReport(reportId, false);
-    await loadTimeline();
+    await Promise.all([loadTimeline(), loadAnomalies()]);
   } catch {
     if (version === loadVersion) node("status").textContent = "Could not load history. Check the local server and refresh.";
   } finally {
@@ -170,6 +171,51 @@ async function loadTimeline() {
   }
 }
 
+async function loadAnomalies() {
+  const version = ++anomalyVersion;
+  const state = node("anomaly-state");
+  const results = node("anomaly-results");
+  state.textContent = "Loading historical analysis…";
+  results.replaceChildren();
+  try {
+    const metric = encodeURIComponent(node("anomaly-metric").value);
+    const series = await api("/anomalies?limit=5&metric=" + metric);
+    if (version !== anomalyVersion) return;
+    state.textContent = series.state === "INSUFFICIENT_DATA"
+      ? "Insufficient data: " + series.baselineSamples + " comparable baseline samples. Need "
+        + series.minimum + " prior samples and a new reading for comparison."
+      : series.usableSamples + " comparable observations · " + series.scenario;
+    if (series.diagnostics.scanTruncated) state.textContent += " History scan is partial.";
+    const entries = [];
+    if (series.latest) {
+      const latest = series.latest;
+      const facts = document.createElement("dl");
+      for (const [label, value] of [["Observed", latest.observedValue], ["Baseline median", latest.baselineMedian],
+        ["MAD", latest.mad], ["Deviation", latest.deviation], ["Threshold", latest.threshold]]) {
+        facts.append(element("dt", label), element("dd", number(value) + " " + series.unit));
+      }
+      entries.push(facts, element("p", latest.sampleCount + " baseline samples · "
+        + date(latest.baselineStart) + " to " + date(latest.baselineEnd)));
+    }
+    if (series.findings.length) {
+      const list = document.createElement("ul");
+      for (const finding of series.findings) {
+        const item = document.createElement("li");
+        const label = {CANDIDATE: "Unconfirmed spike", ALERT: "Sustained increase",
+          COOLDOWN: "Continuing pressure (cooldown)"}[finding.signal];
+        item.append(reportButton(finding.observation, label + " · " + date(finding.observation.capturedAt)));
+        list.append(item);
+      }
+      entries.push(list, element("p", "Historical deviations are indicators for investigation."));
+    } else if (series.state === "READY") {
+      entries.push(element("p", "No historical increases in this series."));
+    }
+    results.replaceChildren(...entries);
+  } catch {
+    if (version === anomalyVersion) state.textContent = "Could not load historical analysis.";
+  }
+}
+
 function drawTimeline() {
   if (!chosenTimeline) return;
   const {points, unit, metric} = chosenTimeline;
@@ -236,5 +282,6 @@ node("filters").addEventListener("submit", event => {
 node("previous").addEventListener("click", () => { if (page > 0) { page--; refresh(); } });
 node("next").addEventListener("click", () => { page++; refresh(); });
 node("metric").addEventListener("change", loadTimeline);
+node("anomaly-metric").addEventListener("change", loadAnomalies);
 new ResizeObserver(drawTimeline).observe(node("chart").parentElement);
 refresh();

@@ -26,6 +26,11 @@ public final class SentinelCli {
     }
 
     static void run(String[] args, AdvisoryOutput.Analysis analysis) throws Exception {
+        if (java.util.Arrays.stream(args).anyMatch(arg -> arg.startsWith("--anomalies="))
+                && java.util.Arrays.stream(args).noneMatch("--help"::equals)) {
+            HistoricalAnalysisCli.run(args);
+            return;
+        }
         boolean demoDeadlock = false;
         boolean demoExecutor = false;
         boolean demoCpu = false;
@@ -275,6 +280,7 @@ public final class SentinelCli {
                   --sync                Collect and report on the calling thread
                   --demo-backpressure   Slow async reporting to demonstrate queue saturation
                   --ai                  Ask local Ollama for a validated, advisory report
+                  --anomalies=METRIC   Analyze saved heap or executor-queue measurements
                   --save-report         Save one measured report to local history
                   --history-dir=DIR     History directory (default .local-build/history)
                   --record-jfr=N        Record the current JVM for 1..60 seconds
@@ -282,6 +288,7 @@ public final class SentinelCli {
                   --jfr-summary         Print event counts for the new recording
                 Examples:
                   --demo-deadlock
+                  --anomalies=executor.queue_depth --minimum=20
                   --demo-executor-saturation --record-jfr=5 --jfr-summary
                   --demo-cpu-load --record-jfr=5 --jfr-summary --ai
                 Optional AI: ollama pull llama3.2:3b, then run ollama serve if needed.

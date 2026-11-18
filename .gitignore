@@ -14,3 +14,6 @@ logs/
 *.incident.json
 .history.lock
 .report-*.tmp
+
+# Personal demo screenshots (benchmark and recording runs already use .local-build/)
+docs/assets/private/

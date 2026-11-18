@@ -61,6 +61,17 @@
         <div id="timeline-range" class="timeline-range"></div>
       </section>
       <section class="card panel">
+        <div class="panel-title">
+          <h2>Historical anomalies</h2>
+          <label>Metric<select id="anomaly-metric">
+            <option value="executor.queue_depth">Executor queue depth</option>
+            <option value="jmx.heap_used_bytes">Heap used</option>
+          </select></label>
+        </div>
+        <p id="anomaly-state" role="status">Loading historical analysis…</p>
+        <div id="anomaly-results"></div>
+      </section>
+      <section class="card panel">
         <h2>Recent reports</h2>
         <p id="reports-state" role="status"></p>
         <ul id="reports" class="reports"></ul>
