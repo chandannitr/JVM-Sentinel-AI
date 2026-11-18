@@ -11,10 +11,10 @@ final class AdvisoryOutput {
         return new OllamaIncidentExplainer(model).explain(bundle);
     }
 
-    static void print(EvidenceBundle bundle, Analysis analysis) throws InterruptedException {
+    static OllamaIncidentExplainer.Result print(EvidenceBundle bundle, Analysis analysis) throws InterruptedException {
         if (bundle.items().isEmpty()) {
             System.out.println("No supported observations. AI analysis was skipped.");
-            return;
+            return new OllamaIncidentExplainer.Result(OllamaIncidentExplainer.Status.SKIPPED, null);
         }
         System.out.println("Observed facts");
         for (var item : bundle.items()) {
@@ -37,7 +37,7 @@ final class AdvisoryOutput {
         if (report == null) {
             System.out.println("AI advisory unavailable. Showing deterministic report.");
             System.out.println("  " + result.status().message());
-            return;
+            return result;
         }
         System.out.println("AI hypothesis");
         System.out.println("  Classification: " + (report.incident() == null ? "observations only" : report.incident()));
@@ -51,6 +51,7 @@ final class AdvisoryOutput {
         System.out.println("Uncertainty/limitations");
         System.out.println("  Model confidence: " + report.confidence() + " (qualitative)");
         report.limitations().forEach(text -> System.out.println("  " + text));
+        return result;
     }
 
     @FunctionalInterface

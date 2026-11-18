@@ -7,10 +7,10 @@ import java.util.List;
 import java.util.Map;
 
 /** A small JSON codec for the bounded Ollama boundary and the JDK-only launcher. */
-final class Json {
+public final class Json {
     private Json() { }
 
-    static String write(Object value) {
+    public static String write(Object value) {
         var output = new StringBuilder();
         write(value, output);
         return output.toString();
@@ -48,7 +48,7 @@ final class Json {
         }
     }
 
-    static Map<?, ?> object(String source) {
+    public static Map<?, ?> object(String source) {
         var parser = new Parser(source);
         Object value = parser.value(0);
         parser.space();

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JVM Sentinel · Incident history</title>
+  <link rel="stylesheet" href="/dashboard.css">
+  <script src="/dashboard.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="shell masthead">
+      <div class="brand"><span aria-hidden="true" class="brand-mark">JS</span><strong>JVM Sentinel</strong></div>
+      <span class="local">Local history</span>
+    </div>
+  </header>
+  <main class="shell">
+    <div class="heading">
+      <div><h1>Incident history</h1><p id="status" role="status">Loading saved history…</p></div>
+      <button id="refresh" type="button">Refresh</button>
+    </div>
+    <section class="kpis" aria-label="History overview">
+      <div class="card kpi"><span>Saved reports</span><strong id="report-total">—</strong></div>
+      <div class="card kpi"><span>Rule incidents</span><strong id="incident-total">—</strong></div>
+      <div class="card kpi"><span>Last 24 hours</span><strong id="recent-total">—</strong></div>
+      <div class="card kpi"><span>By severity</span><div id="severity-total">—</div></div>
+      <div class="card kpi"><span>Latest capture</span><strong id="latest" class="date">—</strong></div>
+    </section>
+    <div class="layout">
+      <section class="card panel">
+        <div class="panel-title"><h2>Rule incidents</h2></div>
+        <form id="filters" class="filters">
+          <label>Severity<select id="severity"><option value="">All severities</option><option>CRITICAL</option><option>WARNING</option></select></label>
+          <label>Rule<select id="code"><option value="">All rules</option><option>EXECUTOR_SATURATION</option><option>HEAP_PRESSURE</option><option>PLATFORM_THREAD_DEADLOCK</option></select></label>
+          <button type="submit">Apply filters</button>
+        </form>
+        <p id="incident-state" role="status"></p>
+        <div class="table-wrap"><table>
+          <thead><tr><th scope="col">Rule</th><th scope="col">Severity</th><th scope="col">Captured</th><th scope="col">Scenario</th><th scope="col">Observed evidence</th></tr></thead>
+          <tbody id="incident-rows"></tbody>
+        </table></div>
+        <div class="paging"><button id="previous" type="button" disabled>Previous</button><span id="page-status"></span><button id="next" type="button" disabled>Next</button></div>
+      </section>
+      <section class="card panel detail" aria-labelledby="detail-title">
+        <h2 id="detail-title" tabindex="-1">Report detail</h2>
+        <div id="detail" aria-live="polite"><p>Select an incident or a recent report.</p></div>
+      </section>
+      <section class="card panel timeline">
+        <div class="panel-title">
+          <h2>Metrics timeline</h2>
+          <label>Metric<select id="metric">
+            <option value="jmx.heap_used_bytes">Heap used</option>
+            <option value="jmx.live_threads">Live threads</option>
+            <option value="executor.queue_depth">Executor queue depth</option>
+            <option value="cpu.thread_cpu_ns">Worker CPU time</option>
+            <option value="jfr.jdk.ExecutionSample.count">JFR execution samples</option>
+          </select></label>
+        </div>
+        <p id="timeline-state" role="status">Loading timeline…</p>
+        <canvas id="chart" role="img" aria-label="Timeline of observed samples"></canvas>
+        <div id="timeline-range" class="timeline-range"></div>
+      </section>
+      <section class="card panel">
+        <h2>Recent reports</h2>
+        <p id="reports-state" role="status"></p>
+        <ul id="reports" class="reports"></ul>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

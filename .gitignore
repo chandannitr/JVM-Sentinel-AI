@@ -9,3 +9,8 @@
 *.hprof
 logs/
 .env
+
+# Incident documents written to custom history folders
+*.incident.json
+.history.lock
+.report-*.tmp

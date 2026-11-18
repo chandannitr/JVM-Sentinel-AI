@@ -1,6 +1,8 @@
 package dev.jvmsentinel.cli;
 
 import dev.jvmsentinel.ai.EvidenceBundle;
+import dev.jvmsentinel.history.FileIncidentHistory;
+import dev.jvmsentinel.history.StoredReport;
 import dev.jvmsentinel.core.AsyncMetricsPipeline;
 import dev.jvmsentinel.core.JfrDiagnostics;
 import dev.jvmsentinel.core.JmxMetricsCollector;
@@ -29,6 +31,8 @@ public final class SentinelCli {
         boolean demoCpu = false;
         Integer cpuSeconds = null;
         boolean ai = false;
+        boolean saveReport = false;
+        Path historyDirectory = Path.of(FileIncidentHistory.DEFAULT_DIRECTORY);
         boolean synchronous = false;
         boolean demoBackpressure = false;
         int iterations = 1;
@@ -57,6 +61,14 @@ public final class SentinelCli {
                 synchronous = false;
             } else if ("--demo-backpressure".equals(arg)) {
                 demoBackpressure = true;
+            } else if ("--save-report".equals(arg)) {
+                saveReport = true;
+            } else if (arg.startsWith("--history-dir=")) {
+                String directory = arg.substring("--history-dir=".length());
+                if (directory.isBlank()) {
+                    throw new IllegalArgumentException("--history-dir requires a directory");
+                }
+                historyDirectory = Path.of(directory);
             } else if ("--ai".equals(arg)) {
                 ai = true;
             } else if ("--jfr-summary".equals(arg)) {
@@ -102,13 +114,13 @@ public final class SentinelCli {
             throw new IllegalArgumentException("--record-jfr must exceed the CPU workload duration");
         }
 
-        var options = new SamplingOptions(demoDeadlock, ai, synchronous, demoBackpressure, iterations, intervalMs);
+        var options = new SamplingOptions(demoDeadlock, ai || saveReport, saveReport, synchronous, demoBackpressure, iterations, intervalMs);
         boolean workloadDemo = demoExecutor || demoCpu;
         boolean executorDemo = demoExecutor;
         var evidence = new AtomicReference<EvidenceBundle>();
         Map<String, Long> jfrCounts = Map.of();
         JfrDiagnostics.Workload workload = workloadDemo
-                ? () -> runWorkload(executorDemo, cpuDuration, options.ai(), evidence)
+                ? () -> runWorkload(executorDemo, cpuDuration, options.captureEvidence(), evidence)
                 : () -> sample(options, evidence);
         if (jfrSeconds == null) {
             workload.run();
@@ -118,7 +130,7 @@ public final class SentinelCli {
                     ? JfrDiagnostics.recordCovering(window, jfrOutput, workload)
                     : JfrDiagnostics.record(window, jfrOutput, workload);
             System.out.println("JFR recording: " + recording);
-            if (jfrSummary || ai) {
+            if (jfrSummary || ai || saveReport) {
                 try {
                     jfrCounts = JfrDiagnostics.summarize(recording);
                 } catch (IOException failure) {
@@ -131,18 +143,30 @@ public final class SentinelCli {
                 jfrCounts.forEach((event, count) -> System.out.printf("  %s: %d%n", event, count));
             }
         }
-        if (ai) {
-            AdvisoryOutput.print(CliEvidence.withJfr(evidence.get(), jfrCounts), analysis);
+        if (ai || saveReport) {
+            var bundle = CliEvidence.withJfr(evidence.get(), jfrCounts);
+            var advisory = ai ? AdvisoryOutput.print(bundle, analysis) : null;
+            if (saveReport && !bundle.items().isEmpty()) {
+                try {
+                    var report = new FileIncidentHistory(historyDirectory).save(
+                            bundle, StoredReport.Origin.CLI, StoredReport.Advisory.from(advisory));
+                    System.out.println("Saved report: " + report.reportId() + " (" + report.type() + ")");
+                } catch (IOException failure) {
+                    throw new IOException("Could not save history report. Check directory access and capacity.");
+                }
+            } else if (saveReport) {
+                System.out.println("No measured evidence was available to save.");
+            }
         }
     }
 
-    private static void runWorkload(boolean executorDemo, int cpuDuration, boolean ai,
+    private static void runWorkload(boolean executorDemo, int cpuDuration, boolean captureEvidence,
                                     AtomicReference<EvidenceBundle> evidence) throws Exception {
         if (executorDemo) {
             var snapshot = ExecutorSaturationScenario.run();
             var incidents = new ExecutorSaturationDetector().detect(snapshot).stream().toList();
             printIncidents(incidents);
-            if (ai) evidence.set(CliEvidence.executor(snapshot, incidents));
+            if (captureEvidence) evidence.set(CliEvidence.executor(snapshot, incidents));
             return;
         }
         var result = CpuLoadScenario.run(Duration.ofSeconds(cpuDuration));
@@ -150,10 +174,10 @@ public final class SentinelCli {
                 ? result.threadCpuNanos().getAsLong() + " ns" : "unavailable";
         System.out.printf("CPU workload: elapsed=%d ns, operations=%d, thread CPU time=%s, checksum=%016x%n",
                 result.elapsedNanos(), result.operations(), cpuTime, result.checksum());
-        if (ai) evidence.set(CliEvidence.cpu(result));
+        if (captureEvidence) evidence.set(CliEvidence.cpu(result));
     }
 
-    private record SamplingOptions(boolean demoDeadlock, boolean ai, boolean synchronous,
+    private record SamplingOptions(boolean demoDeadlock, boolean captureEvidence, boolean saveReport, boolean synchronous,
                                    boolean demoBackpressure, int iterations, long intervalMs) { }
 
     private static void sample(SamplingOptions options, AtomicReference<EvidenceBundle> evidence) throws Exception {
@@ -165,7 +189,7 @@ public final class SentinelCli {
 
         if (options.synchronous()) {
             for (int index = 0; index < options.iterations(); index++) {
-                report(detector, collector.collect(), options.ai(), evidence);
+                report(detector, collector.collect(), options, evidence);
                 if (index + 1 < options.iterations()) {
                     Thread.sleep(options.intervalMs());
                 }
@@ -175,7 +199,7 @@ public final class SentinelCli {
 
         boolean slowHandler = options.demoBackpressure();
         var pipeline = new AsyncMetricsPipeline(collector, snap -> {
-            report(detector, snap, options.ai(), evidence);
+            report(detector, snap, options, evidence);
             if (slowHandler) {
                 try {
                     Thread.sleep(50);
@@ -198,15 +222,18 @@ public final class SentinelCli {
         }
     }
 
-    private static void report(RuleBasedIncidentDetector detector, JvmSnapshot snap, boolean ai,
+    private static void report(RuleBasedIncidentDetector detector, JvmSnapshot snap, SamplingOptions options,
                                AtomicReference<EvidenceBundle> evidence) {
         List<Incident> incidents = detector.detect(snap);
         System.out.printf("[%s] Heap: %d/%d bytes (%.1f%%), Live threads: %d%n",
                 snap.capturedAt(), snap.heapUsedBytes(), snap.heapMaxBytes(),
                 snap.heapUsageRatio() * 100, snap.liveThreadCount());
         printIncidents(incidents);
-        // Retain one incident-bearing snapshot for a single request after the sampler terminates.
-        if (ai && !incidents.isEmpty() && evidence.get() == null) {
+        // Retain the first detection, or an observation when persistence is requested.
+        var previous = evidence.get();
+        if (options.captureEvidence()
+                && (previous == null ? options.saveReport() || !incidents.isEmpty()
+                    : previous.detections().isEmpty() && !incidents.isEmpty())) {
             evidence.set(CliEvidence.jvm(snap, incidents));
         }
     }
@@ -248,6 +275,8 @@ public final class SentinelCli {
                   --sync                Collect and report on the calling thread
                   --demo-backpressure   Slow async reporting to demonstrate queue saturation
                   --ai                  Ask local Ollama for a validated, advisory report
+                  --save-report         Save one measured report to local history
+                  --history-dir=DIR     History directory (default .local-build/history)
                   --record-jfr=N        Record the current JVM for 1..60 seconds
                   --jfr-output=DIR      Recording directory (default .local-build/jfr)
                   --jfr-summary         Print event counts for the new recording

@@ -7,6 +7,8 @@ import org.junit.jupiter.api.io.TempDir;
 import dev.jvmsentinel.ai.EvidenceBundle;
 import dev.jvmsentinel.ai.OllamaIncidentExplainer;
 import dev.jvmsentinel.core.JfrDiagnostics;
+import dev.jvmsentinel.history.FileIncidentHistory;
+import dev.jvmsentinel.history.StoredReport;
 import jdk.jfr.consumer.RecordingFile;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -46,7 +48,11 @@ class SentinelCliTest {
             assertTrue(bundle.items().stream().anyMatch(item ->
                     item.metric() == EvidenceBundle.Metric.DEADLOCKED_THREADS && item.value() >= 2));
             return new OllamaIncidentExplainer.Result(OllamaIncidentExplainer.Status.UNAVAILABLE, null);
-        }, "--demo-deadlock", "--ai", "--record-jfr=1", "--jfr-summary", "--jfr-output=" + directory);
+        }, "--demo-deadlock", "--ai", "--record-jfr=1", "--jfr-summary", "--jfr-output=" + directory,
+                "--save-report", "--history-dir=" + directory.resolve("history"));
+        var saved = new FileIncidentHistory(directory.resolve("history")).query().reports().getFirst();
+        assertEquals(StoredReport.Type.INCIDENT, saved.type());
+        assertEquals(OllamaIncidentExplainer.Status.UNAVAILABLE, saved.advisory().status());
         assertTrue(report.contains("PLATFORM_THREAD_DEADLOCK"), report);
         assertTrue(report.contains("Recorded JFR events:"), report);
         assertTrue(report.contains("jdk.ThreadSleep:"), report);
@@ -60,7 +66,7 @@ class SentinelCliTest {
                 && line.contains("dev.jvmsentinel.cli.DeadlockScenario.")), report);
 
         try (var files = Files.list(directory)) {
-            var recordings = files.toList();
+            var recordings = files.filter(path -> path.toString().endsWith(".jfr")).toList();
             assertEquals(1, recordings.size());
             assertTrue(report.contains("JFR recording: " + recordings.getFirst()), report);
             try (var recording = new RecordingFile(recordings.getFirst())) {
@@ -137,6 +143,23 @@ class SentinelCliTest {
                 "Evidence references", "Suggested next diagnostic steps", "Uncertainty/limitations")) {
             assertTrue(report.contains(section), report);
         }
+    }
+
+    @Test
+    @Timeout(10)
+    void savesExecutorAndCpuEvidenceWithoutAi(@TempDir Path directory) throws Exception {
+        var output = runCli(bundle -> fail("Ollama must not run"),
+                "--demo-executor-saturation", "--save-report", "--history-dir=" + directory);
+        assertTrue(output.contains("Saved report:"));
+        runCli(bundle -> fail("Ollama must not run"), "--demo-cpu-load", "--cpu-seconds=1",
+                "--save-report", "--history-dir=" + directory);
+        var saved = new FileIncidentHistory(directory).query().reports();
+        assertEquals(2, saved.size());
+        assertEquals(StoredReport.Type.OBSERVATION, saved.getFirst().type());
+        assertEquals(StoredReport.Type.INCIDENT, saved.getLast().type());
+        assertNull(saved.getFirst().advisory());
+        assertTrue(saved.getFirst().evidence().items().stream()
+                .anyMatch(item -> item.metric() == EvidenceBundle.Metric.CPU_OPERATIONS && item.value() > 0));
     }
 
     private static void assertRecording(String report, Path directory) throws Exception {

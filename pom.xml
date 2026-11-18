@@ -12,7 +12,9 @@
         <module>sentinel-core</module>
         <module>sentinel-detector</module>
         <module>sentinel-ai</module>
+        <module>sentinel-history</module>
         <module>sentinel-cli</module>
+        <module>sentinel-server</module>
     </modules>
 
     <properties>

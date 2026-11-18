@@ -11,6 +11,11 @@
     <dependencies>
         <dependency>
             <groupId>dev.jvmsentinel</groupId>
+            <artifactId>sentinel-history</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.jvmsentinel</groupId>
             <artifactId>sentinel-core</artifactId>
             <version>${project.version}</version>
         </dependency>

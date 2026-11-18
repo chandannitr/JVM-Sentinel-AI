@@ -5,13 +5,14 @@ platform-thread deadlock detection, deterministic incident evidence, and optiona
 explanations using Ollama on localhost. **No cloud account or API key is required to run the MVP.**
 
 ## Included
-- Four Maven modules: `sentinel-core`, `sentinel-detector`, `sentinel-ai`, `sentinel-cli`
+- Six Maven modules covering collection, rules, AI, CLI, local history, and the dashboard
 - JMX monitoring (`MemoryMXBean`, `ThreadMXBean`) with immutable snapshots
 - Bounded asynchronous sampling with backpressure and failure counters, plus synchronous mode
 - Deadlock and heap occupancy rules with measured evidence, including bounded deadlock stacks
 - On-demand Java Flight Recorder (JFR) recording of the local JVM
 - Reproducible deadlock demonstration using daemon platform threads
 - Optional Ollama `/api/generate` integration using the Java 21 HTTP client
+- Opt-in incident history with a loopback REST API and offline dashboard
 - JUnit 5 tests and a portable `javac`-based smoke test
 - `AGENTS.md`: persistent project instructions for Codex inside IntelliJ IDEA
 
@@ -89,6 +90,53 @@ finish within the recording window. For CPU runs, choose a recording duration
 longer than the requested workload duration. Short recordings can legitimately
 show zero execution samples or GC events. Counts describe the saved recording.
 
+## Local incident history and dashboard
+
+From the repository root, run the two demos and then start the dashboard.
+Ollama is optional.
+
+```bash
+./scripts/run-local.sh --demo-executor-saturation --save-report
+./scripts/run-local.sh --demo-cpu-load --record-jfr=5 --jfr-summary --save-report
+mvn -pl sentinel-server -am package -DskipTests && java -jar sentinel-server/target/sentinel-server-0.1.0-SNAPSHOT.jar
+```
+
+Open [the dashboard](http://127.0.0.1:8080/). Select the executor incident to see
+the measured queue and worker counts. Select the CPU observation under Recent
+reports for workload metrics and JFR counts. The server reads saved documents on
+refresh. The first Maven build may download the pinned server dependencies.
+Once cached, you can add `-o` to the Maven build command.
+
+```bash
+curl -fsS 'http://127.0.0.1:8080/api/v1/reports?limit=10'
+```
+
+Excerpt from a local `/api/v1/summary` response after running the two demos:
+
+```json
+{
+  "totalReports": 2,
+  "totalIncidents": 1,
+  "byCode": {"EXECUTOR_SATURATION": 1},
+  "bySeverity": {"WARNING": 1}
+}
+```
+
+The default history path is `.local-build/history` relative to the process
+working directory. From different working directories, set both CLI
+`--history-dir=/absolute/path` and server `--sentinel.history-dir=/absolute/path`.
+The server port can be changed with `--server.port=8081`. To reproduce an empty
+history, run the same JAR with `--server.port=8081 --sentinel.history-dir=.local-build/empty-history`
+using an unused path.
+
+Each `--save-report` invocation saves one measured report. It prefers the first
+incident-bearing snapshot during periodic monitoring and otherwise saves the
+first observation. The store retains the latest 200 valid reports by capture
+time. History and the API retain measured facts, deterministic findings, and
+optional advisory metadata. Free-form AI prose, stacks, and raw JFR files stay
+out of the history API. Timeline points come from saved reports, with gaps
+where a metric was unavailable. See the [API and history contract](sentinel-server/README.md).
+
 ## Run with Maven
 
 ```bash
@@ -101,7 +149,7 @@ java -jar sentinel-cli/target/sentinel-cli-0.1.0-SNAPSHOT.jar --demo-deadlock
 
 Install Ollama from https://ollama.com and pull the model before running the demos.
 
-\`\`\`bash
+```bash
 ollama pull llama3.2:3b
 # In a separate terminal, if Ollama is not running
 ollama serve
@@ -109,10 +157,10 @@ ollama serve
 ./scripts/run-local.sh --demo-deadlock --ai
 ./scripts/run-local.sh --demo-executor-saturation --record-jfr=5 --jfr-summary --ai
 ./scripts/run-local.sh --demo-cpu-load --record-jfr=5 --jfr-summary --ai
-\`\`\`
+```
 
-\`OLLAMA_MODEL\` overrides the default \`llama3.2:3b\`. The CLI sends one request to
-\`127.0.0.1:11434\` after the workload, sampling, and any JFR recording finish.
+`OLLAMA_MODEL` overrides the default `llama3.2:3b`. The CLI sends one request to
+`127.0.0.1:11434` after the workload, sampling, and any JFR recording finish.
 It sends allowlisted metrics and rule metadata. Thread names, stacks, raw logs,
 paths, and environment data stay out of the prompt. Connection and request
 timeouts are two and ten seconds, respectively. If the model is missing or its
@@ -121,7 +169,7 @@ reason for the fallback.
 
 A validated executor advisory can look like this sanitized offline fixture:
 
-\`\`\`text
+```text
 Observed facts
   executor.active_workers = 2 workers
   executor.max_workers = 2 workers
@@ -140,7 +188,7 @@ Suggested next diagnostic steps
 Uncertainty/limitations
   Model confidence: low (qualitative)
   A snapshot cannot establish whether the condition persisted.
-\`\`\`
+```
 
 The cited IDs come from the executor snapshot's active worker and queued task
 counts. Model confidence is qualitative. CPU load remains observations-only,
@@ -186,6 +234,8 @@ JVM-Sentinel-AI-Starter/
 ├── sentinel-core/
 ├── sentinel-detector/
 ├── sentinel-ai/
+├── sentinel-history/
+├── sentinel-server/
 ├── sentinel-cli/
 └── scripts/
     ├── run-local.sh

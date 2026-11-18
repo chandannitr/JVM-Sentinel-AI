@@ -1,0 +1,53 @@
+# JVM Sentinel local API
+
+Build from the repository root with Java 21. Spring Boot 4.1.2 is pinned in
+the server module. Cache its dependencies before using offline Maven.
+
+```bash
+mvn -pl sentinel-server -am package -DskipTests
+java -jar sentinel-server/target/sentinel-server-0.1.0-SNAPSHOT.jar
+```
+
+The server binds to `127.0.0.1:8080` by default. Configure `--server.port` and
+`--sentinel.history-dir` on the JAR command. The history path defaults to
+`.local-build/history` relative to the process working directory. Keep the
+service local. Requests require a loopback peer and local Host header. The
+dashboard uses same-origin fetch and the service allows GET and HEAD only.
+It performs no AI inference, exposes no directory listing, and never serves
+recording files. Use a history directory writable only by trusted local users.
+
+## API v1
+
+All timestamps use ISO-8601 UTC with a `Z` suffix. Report lists sort by
+capture time descending and UUID as a stable tie-breaker. Incident lists use
+incident timestamp descending, then report UUID and code. Time bounds are inclusive.
+
+| GET route | Parameters and response |
+|---|---|
+| `/api/v1/health` | Returns `state` and application `version`. |
+| `/api/v1/reports` | `page` 0–1535 and `limit` 1–100, default 0 and 25. Returns lightweight report headers. |
+| `/api/v1/reports/{reportId}` | Canonical lowercase UUID. Returns report metadata, `parseStatus`, observed values and units, unavailable IDs, rule findings, and optional advisory metadata. |
+| `/api/v1/incidents` | Same pagination. Optional exact `severity`, `code`, `from`, and `to`. Returns deterministic findings only. |
+| `/api/v1/metrics/timeline` | `metric` evidence ID, default `jmx.heap_used_bytes`. Optional `limit` 1–200 (default 100), `from`, and `to`. Returns chronologically ordered points from the most recent matching reports. A null point is a gap. |
+| `/api/v1/summary` | Totals across scanned reports, rule counts by code and severity, incidents in the last 24 hours, and latest capture time. |
+
+List responses contain `items`, `page`, `limit`, `total`, and `diagnostics`.
+Diagnostics count corrupt, oversized, and unsupported documents and flag a
+truncated scan. Empty lists and timelines return empty arrays. The timeline
+samples saved report snapshots. It does not interpolate data between them.
+Errors return a safe `code` and `message`, including 400 for invalid requests,
+404 for missing reports, and 500 if history is inaccessible.
+
+## Storage and advisory limits
+
+The writer retains the most recent 200 valid reports. A scan visits at most
+512 directory entries and reads at most 16 KiB per report. A write refuses to
+extend a directory when a full scan was not possible. Corrupt documents are
+left for local inspection. Report filenames are generated UUIDs and symlinked
+roots and report entries are refused. A flushed staging file is renamed
+atomically when supported, with a same-directory move as the fallback.
+
+An advisory, if requested, records validation status and any validated
+classification, confidence, and evidence references. Free-form model prose
+stays in CLI output. Observations, detections, and advisories are rendered
+separately in the dashboard.

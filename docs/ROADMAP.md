@@ -32,9 +32,13 @@
 - [ ] Exploratory evaluation with local models
 
 ## Phase 6 — Timeline and local UX
-- [ ] Incident history, timeline, and local REST API/dashboard
-- [ ] Correlation across sampling windows and monitoring-overhead benchmark
-- [ ] Polished end-to-end demo
+- [x] File-backed incident history, measured timeline, and local read-only REST API/dashboard
+- [x] Reproducible end-to-end workload and dashboard walkthrough
+
+## Phase 7 — Historical diagnostics and packaging
+- [ ] Anomaly correlation across sampling windows
+- [ ] Measured operational overhead and distribution packaging
+- [ ] Recruiter walkthrough with repeatable setup and actual captures
 
 ## Resume-ready completion criteria
 Produce reproducible tests, clear benchmark methodology, a 2-minute demo,

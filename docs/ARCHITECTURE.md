@@ -17,6 +17,10 @@ flowchart TD
     EVIDENCE --> AI[Optional local Ollama]
     AI --> VALIDATE[Schema and grounding checks]
     VALIDATE --> OUT
+    EVIDENCE --> HISTORY[Opt-in versioned history]
+    VALIDATE --> HISTORY
+    HISTORY --> SERVER[Loopback read-only API]
+    SERVER --> DASH[Static dashboard]
 ```
 
 | Module | Responsibility |
@@ -25,6 +29,8 @@ flowchart TD
 | sentinel-detector | Deterministic deadlock, heap, and executor saturation rules and incident evidence |
 | sentinel-ai | Typed advisory evidence, loopback Ollama transport, schema and grounding validation |
 | sentinel-cli | Terminal output and controlled deadlock, executor, and CPU workloads |
+| sentinel-history | Versioned local report snapshots, file storage, and retention |
+| sentinel-server | Spring Boot HTTP DTOs and a static dashboard |
 
 The CLI currently monitors its **own** JVM. A deadlock demonstration launches two daemon
 platform threads that deadlock intentionally. They do not prevent process exit.
@@ -100,6 +106,27 @@ parses the HTTP response envelope and the report JSON separately. The validator
 checks required fields, text and list sizes, the incident classification, evidence
 references, and quantitative prose. On failure, the CLI displays the deterministic
 report. Valid output remains advisory and is rendered separately from observed facts.
+
+## Local history and HTTP boundary
+
+The CLI writes history only with `--save-report`. The store serializes the
+existing allowlisted evidence and rule data to versioned JSON. It records rule
+predicates, stable metric IDs, timestamps, and an optional advisory status,
+classification, confidence, and validated references. Free-form AI prose stays
+in the terminal. History stores no stack traces, raw logs, or recording paths.
+
+Writers serialize retention updates with a process monitor and an OS file
+lock. A fresh UUID identifies an owner-only staging file, which is flushed and
+renamed within the directory. Readers check directory identity, open report
+files without following links, and skip invalid documents. Reads bound each
+file and directory scan. Startup and reads leave a missing history directory
+empty. The history path must be controlled by the local user.
+
+The separate Spring Boot module binds to IPv4 loopback and exposes read-only
+DTOs. It reads the history at request time, so new CLI reports appear on refresh
+without restarting. The browser uses same-origin requests and text DOM nodes.
+The timeline displays discrete observations and marks missing metrics as gaps.
+Neither the server nor the dashboard performs inference or serves JFR files.
 
 ## Limits of the starter
 - No remote JVM attachment or distributed agent.
