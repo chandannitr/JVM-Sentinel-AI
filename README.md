@@ -1,8 +1,14 @@
-# JVM Sentinel AI — Java 21 starter
+# JVM Sentinel AI
 
 A **local-first Core Java performance diagnostics project** demonstrating JVM metrics,
 platform-thread deadlock detection, deterministic incident evidence, and optional AI incident
 explanations using Ollama on localhost. **No cloud account or API key is required to run the MVP.**
+
+## Why this project?
+
+A busy executor, blocked threads, and a CPU-bound workload call for different
+diagnostic checks. The included demos reproduce each condition locally and show
+the JVM evidence the tool actually collected.
 
 ## Included
 - Six Maven modules covering collection, rules, AI, CLI, local history, and the dashboard
@@ -196,6 +202,20 @@ and execution-sample counts describe sampling. Short recordings can contain zero
 events. See the [AI module guide](sentinel-ai/README.md) for evidence mapping,
 validation limits, and offline fixture evaluation.
 
+## Reproducible proof
+
+- [Implemented and planned capabilities](docs/CAPABILITIES.md)
+- [Proof of work and captured results](docs/PROOF_OF_WORK.md)
+- [Two-minute demo](docs/REPRODUCIBLE_DEMO.md)
+- [Benchmark methodology](docs/BENCHMARKS.md)
+- [Security and limitations](docs/SECURITY_AND_LIMITATIONS.md)
+- [Publishing checklist](docs/PUBLISHING_CHECKLIST.md)
+
+Run `bash scripts/capture-github-proof.sh` to capture local evidence. Review
+the draft logs under `.local-build/` before publishing excerpts. The Java 21
+GitHub Actions workflow runs Maven and the CLI smoke test across the repository.
+The local capture does not establish a hosted CI result.
+
 ## Enable Codex in IntelliJ IDEA
 1. **Settings → Plugins → Marketplace**: install JetBrains **AI Assistant**.
 2. Open **AI Chat** and select **Codex**.
@@ -239,5 +259,6 @@ JVM-Sentinel-AI-Starter/
 ├── sentinel-cli/
 └── scripts/
     ├── run-local.sh
-    └── smoke-test.sh
+    ├── smoke-test.sh
+    └── capture-github-proof.sh
 ```

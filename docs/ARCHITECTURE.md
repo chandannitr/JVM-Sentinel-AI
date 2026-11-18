@@ -134,3 +134,10 @@ Neither the server nor the dashboard performs inference or serves JFR files.
 - High heap occupancy alone is not proof of a memory leak.
 - AI output is advisory and limited to the evidence passed into the prompt.
 - This is an educational MVP, not production observability infrastructure.
+
+
+## Reproduce the architecture
+
+The [implementation matrix](CAPABILITIES.md) maps each milestone to its source
+and verification. Follow the [demo](REPRODUCIBLE_DEMO.md) to see measured facts
+flow through the deterministic rules, local history, and dashboard.
