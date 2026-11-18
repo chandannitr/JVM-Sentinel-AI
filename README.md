@@ -7,7 +7,9 @@ explanations using Ollama on localhost. **No cloud account or API key is require
 ## Included
 - Four Maven modules: `sentinel-core`, `sentinel-detector`, `sentinel-ai`, `sentinel-cli`
 - JMX monitoring (`MemoryMXBean`, `ThreadMXBean`) with immutable snapshots
-- Deadlock and heap occupancy rules with measured evidence
+- Bounded asynchronous sampling with backpressure and failure counters, plus synchronous mode
+- Deadlock and heap occupancy rules with measured evidence, including bounded deadlock stacks
+- On-demand Java Flight Recorder (JFR) recording of the local JVM
 - Reproducible deadlock demonstration using daemon platform threads
 - Optional Ollama `/api/generate` integration using the Java 21 HTTP client
 - JUnit 5 tests and a portable `javac`-based smoke test
@@ -35,13 +37,31 @@ Open Terminal inside the project root:
 ```bash
 chmod +x scripts/*.sh
 ./scripts/run-local.sh --help
-./scripts/run-local.sh --iterations=3 --interval-ms=500
+./scripts/run-local.sh --async --iterations=3 --interval-ms=500
+./scripts/run-local.sh --sync --iterations=2
+./scripts/run-local.sh --demo-backpressure
 ./scripts/run-local.sh --demo-deadlock
 ./scripts/smoke-test.sh
 ```
 
 Expected demo incident: `PLATFORM_THREAD_DEADLOCK`.
-The controlled deadlock stays inside the demo process and exits safely because the threads are daemons.
+The daemon demo workers let the process exit normally. The report includes up to eight
+deadlocked platform threads, their lock owners, and up to 12 stack frames per thread.
+
+```bash
+./scripts/run-local.sh --demo-deadlock --record-jfr=2 --jfr-summary --jfr-output=.local-build/jfr
+"$JAVA_HOME/bin/jfr" summary /path/to/sentinel-recording.jfr
+```
+
+`--record-jfr` accepts 1–60 seconds. Each invocation writes a uniquely named recording and
+prints its absolute path. Use that path in the summary command and set `JAVA_HOME` to your JDK 21. The default output directory is `.local-build/jfr`.
+The recording enables thread sleeps, monitor contention of at least 10 ms, and garbage
+collection. `--jfr-summary` prints observed counts for those events, including zero counts. A short run may contain few events. Keep recordings local if thread
+names or stack traces contain sensitive information.
+
+The backpressure demo offers collection work every 1 ms, allows one queued job, and
+adds 50 ms to each reporting job. It runs at least three attempts and prints the
+collection, processing, drop, and failure counters to stderr.
 
 ## Run with Maven
 
@@ -86,7 +106,7 @@ See: https://www.jetbrains.com/help/ai-assistant/codex-agent.html
 ## Safety and accuracy
 - Monitors **only its own JVM**, not every process on your Mac.
 - A high heap ratio is a warning, not proof of a leak.
-- ThreadMXBean deadlock checking is for platform-thread lock deadlocks, not virtual threads.
+- ThreadMXBean deadlock checking covers platform-thread lock deadlocks. Coverage excludes virtual-thread deadlocks and other causes of hangs.
 - AI suggestions are hypotheses based on provided sensor evidence.
 - Do not upload confidential company logs, proprietary code, or secrets.
 

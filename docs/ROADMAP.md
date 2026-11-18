@@ -9,15 +9,17 @@
 - [x] Optional Ollama AI incident explanation via Java HttpClient
 - [x] Unit tests (requires Maven to run) and a no-Maven smoke test
 
-## Phase 2 — Core Java concurrency (Codex's first task)
-- [ ] Bounded BlockingQueue and ThreadPoolExecutor pipeline
-- [ ] Periodic scheduled sampling with graceful shutdown
-- [ ] Drop/retry/backpressure metrics and concurrency unit tests
+## Phase 2 — Core Java concurrency
+- [x] Bounded BlockingQueue and ThreadPoolExecutor pipeline
+- [x] Periodic scheduled sampling with graceful shutdown
+- [x] Drop, retry, collection, processing, and failure metrics with concurrency tests
+- [x] Synchronous and asynchronous CLI modes and a backpressure demo
 
 ## Phase 3 — JVM depth
-- [ ] JFR event streaming or analysis
-- [ ] Thread dump evidence and monitoring-overhead benchmark
-- [ ] Load simulator for queue saturation
+- [x] Bounded platform-thread lock and stack evidence for deadlocks
+- [x] On-demand local JFR recording, event-count summary, and readability tests
+- [ ] JFR event correlation, executor saturation and CPU workloads, and JSONL incident export
+- [ ] Monitoring-overhead benchmark
 
 ## Phase 4 — AI reliability and UX
 - [ ] Structured AI output schema and checks against recorded evidence

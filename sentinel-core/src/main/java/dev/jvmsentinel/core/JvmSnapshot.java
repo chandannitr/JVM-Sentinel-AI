@@ -10,7 +10,13 @@ public record JvmSnapshot(
         long heapUsedBytes,
         long heapMaxBytes,
         int liveThreadCount,
-        List<Long> deadlockedThreadIds) {
+        List<Long> deadlockedThreadIds,
+        List<ThreadEvidence> deadlockedThreadDetails) {
+
+    public JvmSnapshot(Instant capturedAt, long heapUsedBytes, long heapMaxBytes,
+                       int liveThreadCount, List<Long> deadlockedThreadIds) {
+        this(capturedAt, heapUsedBytes, heapMaxBytes, liveThreadCount, deadlockedThreadIds, List.of());
+    }
 
     public JvmSnapshot {
         Objects.requireNonNull(capturedAt, "capturedAt");
@@ -19,6 +25,7 @@ public record JvmSnapshot(
             throw new IllegalArgumentException("Metrics cannot be negative");
         }
         deadlockedThreadIds = List.copyOf(deadlockedThreadIds);
+        deadlockedThreadDetails = List.copyOf(deadlockedThreadDetails);
     }
 
     /** Unknown or unspecified max heap returns 0.0 rather than a fabricated ratio. */

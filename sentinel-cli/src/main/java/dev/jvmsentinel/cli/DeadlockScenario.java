@@ -1,6 +1,8 @@
 package dev.jvmsentinel.cli;
 
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.LockSupport;
 
 /** Deliberately deadlocks daemon platform threads for a safe, local-only demo. */
 final class DeadlockScenario {
@@ -14,10 +16,19 @@ final class DeadlockScenario {
         Thread b = makeWorker("deadlock-demo-b", second, first, bothOwnFirstLock);
         a.start();
         b.start();
-        if (!bothOwnFirstLock.await(2, java.util.concurrent.TimeUnit.SECONDS)) {
+        if (!bothOwnFirstLock.await(2, TimeUnit.SECONDS)) {
             throw new IllegalStateException("Demo workers did not start");
         }
-        Thread.sleep(200); // Let ThreadMXBean observe both workers waiting.
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        while (a.getState() != Thread.State.BLOCKED || b.getState() != Thread.State.BLOCKED) {
+            if (Thread.interrupted()) {
+                throw new InterruptedException();
+            }
+            if (System.nanoTime() - deadline >= 0) {
+                throw new IllegalStateException("Demo workers did not reach the deadlock");
+            }
+            LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1));
+        }
     }
 
     private static Thread makeWorker(String name, Object own, Object other, CountDownLatch ready) {

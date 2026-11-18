@@ -1,5 +1,6 @@
 package dev.jvmsentinel.detector;
 
+import dev.jvmsentinel.core.ThreadEvidence;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
@@ -11,7 +12,13 @@ public record Incident(
         String title,
         String explanation,
         List<String> evidence,
-        Instant detectedAt) {
+        Instant detectedAt,
+        List<ThreadEvidence> threadDetails) {
+    public Incident(String code, Severity severity, String title, String explanation,
+                    List<String> evidence, Instant detectedAt) {
+        this(code, severity, title, explanation, evidence, detectedAt, List.of());
+    }
+
     public Incident {
         Objects.requireNonNull(code);
         Objects.requireNonNull(severity);
@@ -20,5 +27,6 @@ public record Incident(
         Objects.requireNonNull(evidence);
         Objects.requireNonNull(detectedAt);
         evidence = List.copyOf(evidence);
+        threadDetails = List.copyOf(threadDetails);
     }
 }

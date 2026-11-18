@@ -28,7 +28,7 @@ public final class RuleBasedIncidentDetector {
                     "Platform-thread deadlock detected",
                     "ThreadMXBean identified a circular lock dependency; inspect thread dumps.",
                     List.of("Deadlocked thread IDs: " + snapshot.deadlockedThreadIds()),
-                    snapshot.capturedAt()));
+                    snapshot.capturedAt(), snapshot.deadlockedThreadDetails()));
         }
         if (snapshot.heapMaxBytes() > 0 && snapshot.heapUsageRatio() >= heapPressureThreshold) {
             incidents.add(new Incident(
