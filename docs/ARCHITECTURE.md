@@ -19,9 +19,9 @@ flowchart TD
 | Module | Responsibility |
 |---|---|
 | sentinel-core | Scheduled sampling, bounded work queue, JMX collection, and immutable snapshots |
-| sentinel-detector | Deterministic deadlock/heap rules and incident evidence |
+| sentinel-detector | Deterministic deadlock, heap, and executor saturation rules and incident evidence |
 | sentinel-ai | Optional localhost Ollama generate API; analysis only |
-| sentinel-cli | Terminal output and controlled deadlock simulation |
+| sentinel-cli | Terminal output and controlled deadlock, executor, and CPU workloads |
 
 The CLI currently monitors its **own** JVM. A deadlock demonstration launches two daemon
 platform threads that deadlock intentionally. They do not prevent process exit.
@@ -58,7 +58,26 @@ JFR records the current JVM only when enabled. It records for the selected
 window, caps retained recording data at 16 MiB by JFR chunk, and saves the dump
 to a unique file once the sampling workload and recording window finish. Enabled
 events are `jdk.ThreadSleep`, `jdk.JavaMonitorEnter` (10 ms threshold), and
-`jdk.GarbageCollection`. The recording closes on success, interruption, or error. The optional CLI summary streams the saved file and counts the three configured event types.
+`jdk.GarbageCollection`. When supported, it also enables `jdk.CPULoad` at a
+one-second period and `jdk.ExecutionSample` at a 20 ms period. The optional
+summary streams the finished file, reports zero counts, and reports a parsing
+error if the file exceeds 64 MiB or one million events. The recording closes
+on success, interruption, or error.
+
+## Workload evidence
+
+The executor demo uses two named workers and a four-slot bounded queue. It uses
+latches to hold both workers while the queue fills. A separate immutable snapshot
+captures the executor counters before releasing the workers. The detector uses
+worker and queue capacity independently of the rejection counter. Cleanup
+releases the latch, drains accepted tasks, and bounds both graceful and forced waits.
+
+The CPU demo uses one interruptible arithmetic worker for 1–5 seconds. Worker
+CPU time comes from the JVM thread MXBean when enabled. The CPU demo emits no
+pressure incident from this single measurement. For both new workloads, a JFR
+recording starts before the demo and has a scheduled stop deadline. If the
+workload misses that deadline, no purported full-workload artifact is saved.
+JFR counts are observations for the recorded JVM and do not establish causation.
 
 ## Limits of the starter
 - No remote JVM attachment or distributed agent.

@@ -18,7 +18,9 @@
 ## Phase 3 — JVM depth
 - [x] Bounded platform-thread lock and stack evidence for deadlocks
 - [x] On-demand local JFR recording, event-count summary, and readability tests
-- [ ] JFR event correlation, executor saturation and CPU workloads, and JSONL incident export
+- [x] Reproducible executor saturation incident and bounded CPU workload
+- [x] JFR recordings and event counts alongside observed workload metrics
+- [ ] Automated JFR event correlation and JSONL incident export
 - [ ] Monitoring-overhead benchmark
 
 ## Phase 4 — AI reliability and UX

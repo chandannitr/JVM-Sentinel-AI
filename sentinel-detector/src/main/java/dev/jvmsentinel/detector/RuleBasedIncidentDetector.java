@@ -27,7 +27,8 @@ public final class RuleBasedIncidentDetector {
                     "PLATFORM_THREAD_DEADLOCK", Severity.CRITICAL,
                     "Platform-thread deadlock detected",
                     "ThreadMXBean identified a circular lock dependency; inspect thread dumps.",
-                    List.of("Deadlocked thread IDs: " + snapshot.deadlockedThreadIds()),
+                    List.of("Rule: ThreadMXBean reports a platform-thread lock cycle",
+                            "Deadlocked thread IDs: " + snapshot.deadlockedThreadIds()),
                     snapshot.capturedAt(), snapshot.deadlockedThreadDetails()));
         }
         if (snapshot.heapMaxBytes() > 0 && snapshot.heapUsageRatio() >= heapPressureThreshold) {
@@ -35,7 +36,8 @@ public final class RuleBasedIncidentDetector {
                     "HEAP_PRESSURE", Severity.WARNING,
                     "High Java heap occupancy",
                     "Heap occupancy exceeded the configured threshold; this alone does not prove a leak.",
-                    List.of("Heap used bytes: " + snapshot.heapUsedBytes(),
+                    List.of("Rule: heap used / known heap maximum >= " + heapPressureThreshold,
+                            "Heap used bytes: " + snapshot.heapUsedBytes(),
                             "Heap max bytes: " + snapshot.heapMaxBytes(),
                             "Heap occupancy: " + Math.round(snapshot.heapUsageRatio() * 100) + "%"),
                     snapshot.capturedAt()));

@@ -5,11 +5,13 @@ import dev.jvmsentinel.core.AsyncMetricsPipeline;
 import dev.jvmsentinel.core.JfrDiagnostics;
 import dev.jvmsentinel.core.JmxMetricsCollector;
 import dev.jvmsentinel.core.JvmSnapshot;
+import dev.jvmsentinel.detector.ExecutorSaturationDetector;
 import dev.jvmsentinel.detector.Incident;
 import dev.jvmsentinel.detector.RuleBasedIncidentDetector;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 
 /** CLI entrypoint; samples only its own JVM in this starter. */
@@ -18,6 +20,9 @@ public final class SentinelCli {
 
     public static void main(String[] args) throws Exception {
         boolean demoDeadlock = false;
+        boolean demoExecutor = false;
+        boolean demoCpu = false;
+        Integer cpuSeconds = null;
         boolean ai = false;
         boolean synchronous = false;
         boolean demoBackpressure = false;
@@ -32,6 +37,15 @@ public final class SentinelCli {
                 return;
             } else if ("--demo-deadlock".equals(arg)) {
                 demoDeadlock = true;
+            } else if ("--demo-executor-saturation".equals(arg)) {
+                demoExecutor = true;
+            } else if ("--demo-cpu-load".equals(arg)) {
+                demoCpu = true;
+            } else if (arg.startsWith("--cpu-seconds=")) {
+                cpuSeconds = Integer.parseInt(arg.substring("--cpu-seconds=".length()));
+                if (cpuSeconds < 1 || cpuSeconds > CpuLoadScenario.MAX_SECONDS) {
+                    throw new IllegalArgumentException("--cpu-seconds must be 1..5");
+                }
             } else if ("--sync".equals(arg)) {
                 synchronous = true;
             } else if ("--async".equals(arg)) {
@@ -70,11 +84,33 @@ public final class SentinelCli {
         if (jfrSummary && jfrSeconds == null) {
             throw new IllegalArgumentException("--jfr-summary requires --record-jfr");
         }
+        int demoCount = (demoDeadlock ? 1 : 0) + (demoBackpressure ? 1 : 0)
+                + (demoExecutor ? 1 : 0) + (demoCpu ? 1 : 0);
+        if (demoCount > 1) {
+            throw new IllegalArgumentException("Choose only one demo flag");
+        }
+        if (cpuSeconds != null && !demoCpu) {
+            throw new IllegalArgumentException("--cpu-seconds requires --demo-cpu-load");
+        }
+        int cpuDuration = cpuSeconds == null ? CpuLoadScenario.DEFAULT_SECONDS : cpuSeconds;
+        if (demoCpu && jfrSeconds != null && jfrSeconds <= cpuDuration) {
+            throw new IllegalArgumentException("--record-jfr must exceed the CPU workload duration");
+        }
+
         var options = new SamplingOptions(demoDeadlock, ai, synchronous, demoBackpressure, iterations, intervalMs);
+        boolean workloadDemo = demoExecutor || demoCpu;
+        boolean executorDemo = demoExecutor;
+        var incidents = new ArrayList<Incident>();
+        JfrDiagnostics.Workload workload = workloadDemo
+                ? () -> runWorkload(executorDemo, cpuDuration, incidents)
+                : () -> sample(options);
         if (jfrSeconds == null) {
-            sample(options);
+            workload.run();
         } else {
-            Path recording = JfrDiagnostics.record(Duration.ofSeconds(jfrSeconds), jfrOutput, () -> sample(options));
+            Duration window = Duration.ofSeconds(jfrSeconds);
+            Path recording = workloadDemo
+                    ? JfrDiagnostics.recordCovering(window, jfrOutput, workload)
+                    : JfrDiagnostics.record(window, jfrOutput, workload);
             System.out.println("JFR recording: " + recording);
             if (jfrSummary) {
                 System.out.println("Recorded JFR events:");
@@ -82,6 +118,23 @@ public final class SentinelCli {
                         (event, count) -> System.out.printf("  %s: %d%n", event, count));
             }
         }
+        if (workloadDemo && ai) {
+            explain(incidents);
+        }
+    }
+
+    private static void runWorkload(boolean executorDemo, int cpuDuration, List<Incident> incidents) throws Exception {
+        if (executorDemo) {
+            var snapshot = ExecutorSaturationScenario.run();
+            new ExecutorSaturationDetector().detect(snapshot).ifPresent(incidents::add);
+            printIncidents(incidents);
+            return;
+        }
+        var result = CpuLoadScenario.run(Duration.ofSeconds(cpuDuration));
+        String cpuTime = result.threadCpuNanos().isPresent()
+                ? result.threadCpuNanos().getAsLong() + " ns" : "unavailable";
+        System.out.printf("CPU workload: elapsed=%d ns, operations=%d, thread CPU time=%s, checksum=%016x%n",
+                result.elapsedNanos(), result.operations(), cpuTime, result.checksum());
     }
 
     private record SamplingOptions(boolean demoDeadlock, boolean ai, boolean synchronous,
@@ -134,11 +187,19 @@ public final class SentinelCli {
         System.out.printf("[%s] Heap: %d/%d bytes (%.1f%%), Live threads: %d%n",
                 snap.capturedAt(), snap.heapUsedBytes(), snap.heapMaxBytes(),
                 snap.heapUsageRatio() * 100, snap.liveThreadCount());
+        printIncidents(incidents);
+        if (ai) {
+            explain(incidents);
+        }
+    }
+
+    private static void printIncidents(List<Incident> incidents) {
         if (incidents.isEmpty()) System.out.println("  No incidents detected by current rules.");
         for (Incident incident : incidents) {
-            System.out.printf("  [%s] %s - %s%n", incident.severity(),
-                    incident.code(), incident.title());
+            System.out.printf("  [%s] %s - %s [%s]%n", incident.severity(),
+                    incident.code(), incident.title(), incident.detectedAt());
             for (String evidence : incident.evidence()) System.out.println("    * " + evidence);
+            System.out.println("    Interpretation: " + incident.explanation());
             for (var thread : incident.threadDetails()) {
                 System.out.printf("    Thread %d (%s) %s%n", thread.threadId(), thread.name(), thread.state());
                 if (thread.lockName() != null) {
@@ -152,18 +213,19 @@ public final class SentinelCli {
                 }
             }
         }
-        if (ai) {
-            String model = System.getenv().getOrDefault("OLLAMA_MODEL", "llama3.2:3b");
-            try {
-                var explainer = new OllamaIncidentExplainer(
-                        URI.create("http://127.0.0.1:11434/api/generate"), model);
-                System.out.println("AI analysis:\n" + explainer.explain(incidents));
-            } catch (InterruptedException interrupted) {
-                Thread.currentThread().interrupt();
-            } catch (Exception failure) {
-                System.err.println("Local AI unavailable: " + (failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage())
-                        + " (start Ollama and pull the model, or omit --ai)");
-            }
+    }
+
+    private static void explain(List<Incident> incidents) {
+        String model = System.getenv().getOrDefault("OLLAMA_MODEL", "llama3.2:3b");
+        try {
+            var explainer = new OllamaIncidentExplainer(
+                    URI.create("http://127.0.0.1:11434/api/generate"), model);
+            System.out.println("AI analysis:\n" + explainer.explain(incidents));
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        } catch (Exception failure) {
+            System.err.println("Local AI unavailable: " + (failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage())
+                    + " (start Ollama and pull the model, or omit --ai)");
         }
     }
 
@@ -173,6 +235,9 @@ public final class SentinelCli {
                 Options:
                   --help                Show this help
                   --demo-deadlock       Trigger a controlled daemon-thread deadlock
+                  --demo-executor-saturation  Fill a two-worker executor and its four-slot queue
+                  --demo-cpu-load       Run a bounded computation on one worker
+                  --cpu-seconds=N       CPU workload duration, 1..5 (default 2)
                   --iterations=N        Sampling iterations, default 1
                   --interval-ms=N       Scheduler delay in ms, default 500
                   --async               Use bounded async sampling (default)
@@ -184,7 +249,8 @@ public final class SentinelCli {
                   --jfr-summary         Print event counts for the new recording
                 Examples:
                   --demo-deadlock
-                  --demo-deadlock --record-jfr=2 --jfr-summary
+                  --demo-executor-saturation --record-jfr=5 --jfr-summary
+                  --demo-cpu-load --record-jfr=5 --jfr-summary
                 Ollama model: OLLAMA_MODEL environment variable (default llama3.2:3b)
                 """);
     }

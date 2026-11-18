@@ -55,13 +55,39 @@ deadlocked platform threads, their lock owners, and up to 12 stack frames per th
 
 `--record-jfr` accepts 1–60 seconds. Each invocation writes a uniquely named recording and
 prints its absolute path. Use that path in the summary command and set `JAVA_HOME` to your JDK 21. The default output directory is `.local-build/jfr`.
-The recording enables thread sleeps, monitor contention of at least 10 ms, and garbage
-collection. `--jfr-summary` prints observed counts for those events, including zero counts. A short run may contain few events. Keep recordings local if thread
+The recording enables thread sleeps, monitor contention of at least 10 ms, garbage
+collection, and CPU load and execution sampling when supported by JFR. `--jfr-summary` prints observed counts for those events, including zero counts. A short run may contain few events. Keep recordings local if thread
 names or stack traces contain sensitive information.
 
 The backpressure demo offers collection work every 1 ms, allows one queued job, and
 adds 50 ms to each reporting job. It runs at least three attempts and prints the
 collection, processing, drop, and failure counters to stderr.
+
+## Reproducible workload demos
+
+```bash
+./scripts/run-local.sh --demo-executor-saturation
+./scripts/run-local.sh --demo-cpu-load
+./scripts/run-local.sh --demo-executor-saturation --record-jfr=5 --jfr-summary
+./scripts/run-local.sh --demo-cpu-load --cpu-seconds=2 --record-jfr=5 --jfr-summary
+```
+
+The executor demo holds two workers with a latch, fills four queue slots, then
+attempts one more submission and counts its rejection. `EXECUTOR_SATURATION`
+fires when active workers reach the worker limit and queued tasks reach queue
+capacity. The report shows rejection separately from that rule. Queueing can
+occur with zero JFR monitor events.
+
+The CPU demo uses one interruptible arithmetic worker for two seconds by
+default. `--cpu-seconds=1..5` changes the duration. Output includes measured elapsed
+time, completed operations, and worker CPU time when the JVM exposes it. The
+single workload measurement does not establish system-wide CPU pressure.
+
+Use one demo flag per run. The new workload demos run independently of periodic
+JMX sampling. Combined recordings start before the workload and require it to
+finish within the recording window. For CPU runs, choose a recording duration
+longer than the requested workload duration. Short recordings can legitimately
+show zero execution samples or GC events. Counts describe the saved recording.
 
 ## Run with Maven
 
