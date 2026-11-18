@@ -1,0 +1,11 @@
+# Maven / IntelliJ / local runtime files
+**/target/
+.idea/
+*.iml
+*.class
+.local-build/
+.DS_Store
+*.jfr
+*.hprof
+logs/
+.env
