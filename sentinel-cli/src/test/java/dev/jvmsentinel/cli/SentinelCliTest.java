@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
+import dev.jvmsentinel.ai.EvidenceBundle;
+import dev.jvmsentinel.ai.OllamaIncidentExplainer;
 import dev.jvmsentinel.core.JfrDiagnostics;
 import jdk.jfr.consumer.RecordingFile;
 import java.io.ByteArrayOutputStream;
@@ -35,8 +37,16 @@ class SentinelCliTest {
     @Test
     @Timeout(15)
     void reportsActualDeadlockDetailsAndCreatesReadableJfr(@TempDir Path directory) throws Exception {
-        String report = runCli("--demo-deadlock", "--sync", "--record-jfr=1", "--jfr-summary",
-                "--jfr-output=" + directory);
+        Thread owner = Thread.currentThread();
+        String report = runCli(bundle -> {
+            assertSame(owner, Thread.currentThread());
+            assertEquals(EvidenceBundle.Scenario.DEADLOCK, bundle.scenario());
+            assertTrue(bundle.detections().stream().anyMatch(
+                    detection -> detection.rule() == EvidenceBundle.Rule.PLATFORM_THREAD_DEADLOCK));
+            assertTrue(bundle.items().stream().anyMatch(item ->
+                    item.metric() == EvidenceBundle.Metric.DEADLOCKED_THREADS && item.value() >= 2));
+            return new OllamaIncidentExplainer.Result(OllamaIncidentExplainer.Status.UNAVAILABLE, null);
+        }, "--demo-deadlock", "--ai", "--record-jfr=1", "--jfr-summary", "--jfr-output=" + directory);
         assertTrue(report.contains("PLATFORM_THREAD_DEADLOCK"), report);
         assertTrue(report.contains("Recorded JFR events:"), report);
         assertTrue(report.contains("jdk.ThreadSleep:"), report);
@@ -90,14 +100,43 @@ class SentinelCliTest {
     @Test
     @Timeout(15)
     void recordsCpuWorkloadAndReportsMeasurements(@TempDir Path directory) throws Exception {
-        String report = runCli("--demo-cpu-load", "--cpu-seconds=1", "--ai", "--record-jfr=2",
+        String report = runCli(bundle -> {
+            assertEquals(EvidenceBundle.Scenario.CPU, bundle.scenario());
+            assertTrue(bundle.detections().isEmpty());
+            assertTrue(bundle.items().stream().anyMatch(item -> item.metric() == EvidenceBundle.Metric.CPU_OPERATIONS));
+            assertTrue(bundle.items().stream().anyMatch(item -> item.metric() == EvidenceBundle.Metric.THREAD_SLEEP));
+            return new OllamaIncidentExplainer.Result(OllamaIncidentExplainer.Status.UNAVAILABLE, null);
+        }, "--demo-cpu-load", "--cpu-seconds=1", "--ai", "--record-jfr=2",
                 "--jfr-summary", "--jfr-output=" + directory);
         assertTrue(report.contains("CPU workload: elapsed="), report);
         assertTrue(report.contains("operations="), report);
         assertTrue(report.contains("thread CPU time="), report);
         assertFalse(report.contains("CPU_PRESSURE"), report);
-        assertTrue(report.contains("No incidents detected. AI analysis was skipped."), report);
+        assertTrue(report.contains("AI advisory unavailable. Showing deterministic report."), report);
         assertRecording(report, directory);
+    }
+
+    @Test
+    void analyzesExecutorEvidenceOnceOnCallingThreadAndPrintsSeparateSections() throws Exception {
+        Thread owner = Thread.currentThread();
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        String report = runCli(bundle -> {
+            assertSame(owner, Thread.currentThread());
+            calls.incrementAndGet();
+            assertEquals(EvidenceBundle.Rule.EXECUTOR_SATURATION, bundle.detections().getFirst().rule());
+            assertTrue(bundle.items().contains(new EvidenceBundle.Item(EvidenceBundle.Metric.REJECTED_TASKS, 1)));
+            var advisory = new dev.jvmsentinel.ai.AdvisoryReport(EvidenceBundle.Rule.EXECUTOR_SATURATION,
+                    "Capacity was reached.", "Tasks may have been slow to finish.",
+                    dev.jvmsentinel.ai.AdvisoryReport.Confidence.low, java.util.List.of("executor.queue_depth"),
+                    java.util.List.of(), java.util.List.of("Measure task duration."),
+                    java.util.List.of("The observation window is limited."));
+            return new OllamaIncidentExplainer.Result(OllamaIncidentExplainer.Status.VALID, advisory);
+        }, "--demo-executor-saturation", "--ai");
+        assertEquals(1, calls.get());
+        for (String section : java.util.List.of("Observed facts", "Deterministic detection", "AI hypothesis",
+                "Evidence references", "Suggested next diagnostic steps", "Uncertainty/limitations")) {
+            assertTrue(report.contains(section), report);
+        }
     }
 
     private static void assertRecording(String report, Path directory) throws Exception {
@@ -112,11 +151,15 @@ class SentinelCliTest {
     }
 
     private static String runCli(String... arguments) throws Exception {
+        return runCli(AdvisoryOutput::local, arguments);
+    }
+
+    private static String runCli(AdvisoryOutput.Analysis analysis, String... arguments) throws Exception {
         var output = new ByteArrayOutputStream();
         PrintStream original = System.out;
         try (var capture = new PrintStream(output, true, StandardCharsets.UTF_8)) {
             System.setOut(capture);
-            SentinelCli.main(arguments);
+            SentinelCli.run(arguments, analysis);
         } finally {
             System.setOut(original);
         }

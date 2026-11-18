@@ -97,19 +97,56 @@ mvn package
 java -jar sentinel-cli/target/sentinel-cli-0.1.0-SNAPSHOT.jar --demo-deadlock
 ```
 
-## Optional: get a local AI explanation
-Install Ollama from https://ollama.com and run:
+## Optional local AI advisory
 
-```bash
+Install Ollama from https://ollama.com and pull the model before running the demos.
+
+\`\`\`bash
 ollama pull llama3.2:3b
-# In a separate terminal, if Ollama isn't already running:
+# In a separate terminal, if Ollama is not running
 ollama serve
-./scripts/run-local.sh --demo-deadlock --ai
-```
 
-`OLLAMA_MODEL` can override the default `llama3.2:3b`. Model availability depends on
-what you have pulled locally. The application only contacts `127.0.0.1:11434`.
-**Ollama does not run autonomously here**: AI provides text analysis, never changes files.
+./scripts/run-local.sh --demo-deadlock --ai
+./scripts/run-local.sh --demo-executor-saturation --record-jfr=5 --jfr-summary --ai
+./scripts/run-local.sh --demo-cpu-load --record-jfr=5 --jfr-summary --ai
+\`\`\`
+
+\`OLLAMA_MODEL\` overrides the default \`llama3.2:3b\`. The CLI sends one request to
+\`127.0.0.1:11434\` after the workload, sampling, and any JFR recording finish.
+It sends allowlisted metrics and rule metadata. Thread names, stacks, raw logs,
+paths, and environment data stay out of the prompt. Connection and request
+timeouts are two and ten seconds, respectively. If the model is missing or its
+reply fails validation, the CLI keeps the deterministic report and displays the
+reason for the fallback.
+
+A validated executor advisory can look like this sanitized offline fixture:
+
+\`\`\`text
+Observed facts
+  executor.active_workers = 2 workers
+  executor.max_workers = 2 workers
+  executor.queue_depth = 4 tasks
+  executor.queue_capacity = 4 tasks
+Deterministic detection
+  [WARNING] EXECUTOR_SATURATION
+  Rule: Active workers reach the worker limit and queued tasks reach queue capacity
+AI hypothesis
+  Possible explanation: Tasks may be slow to finish.
+Evidence references
+  executor.active_workers
+  executor.queue_depth
+Suggested next diagnostic steps
+  Measure task duration.
+Uncertainty/limitations
+  Model confidence: low (qualitative)
+  A snapshot cannot establish whether the condition persisted.
+\`\`\`
+
+The cited IDs come from the executor snapshot's active worker and queued task
+counts. Model confidence is qualitative. CPU load remains observations-only,
+and execution-sample counts describe sampling. Short recordings can contain zero
+events. See the [AI module guide](sentinel-ai/README.md) for evidence mapping,
+validation limits, and offline fixture evaluation.
 
 ## Enable Codex in IntelliJ IDEA
 1. **Settings → Plugins → Marketplace**: install JetBrains **AI Assistant**.

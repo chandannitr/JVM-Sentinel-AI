@@ -23,10 +23,18 @@
 - [ ] Automated JFR event correlation and JSONL incident export
 - [ ] Monitoring-overhead benchmark
 
-## Phase 4 — AI reliability and UX
-- [ ] Structured AI output schema and checks against recorded evidence
-- [ ] Traceable incident timelines, incident history, and local UI
-- [ ] Model comparison and evaluation on labeled incident scenarios
+## Phase 4 — Reproducible workloads
+- [x] Bounded executor saturation and CPU demonstrations integrated with JFR
+
+## Phase 5 — Evidence-grounded AI advisories
+- [x] Allowlisted evidence IDs, structured local reports, and grounding checks
+- [x] Deterministic fallback and offline labeled fixture evaluation
+- [ ] Exploratory evaluation with local models
+
+## Phase 6 — Timeline and local UX
+- [ ] Incident history, timeline, and local REST API/dashboard
+- [ ] Correlation across sampling windows and monitoring-overhead benchmark
+- [ ] Polished end-to-end demo
 
 ## Resume-ready completion criteria
 Produce reproducible tests, clear benchmark methodology, a 2-minute demo,

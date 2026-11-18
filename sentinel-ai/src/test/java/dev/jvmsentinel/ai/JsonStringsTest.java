@@ -20,4 +20,11 @@ class JsonStringsTest {
         assertThrows(IllegalArgumentException.class,
                 () -> JsonStrings.extractStringField("{}", "response"));
     }
+    @Test
+    void rejectsDuplicateKeysTrailingContentAndInvalidNumberGrammar() {
+        for (String invalid : java.util.List.of(
+                "{\"a\":null,\"a\":true}", "{}{}", "{\"n\":01}", "{\"n\":1.}", "{\"n\":+1}")) {
+            assertThrows(IllegalArgumentException.class, () -> Json.object(invalid));
+        }
+    }
 }

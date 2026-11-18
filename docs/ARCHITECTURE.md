@@ -12,15 +12,18 @@ flowchart TD
     COL --> SNAP[Immutable JvmSnapshot]
     SNAP --> RULE[Deterministic Incident Detector]
     RULE --> OUT[CLI incident report]
-    RULE --> AI[Optional local Ollama explainer]
-    AI --> OUT
+    RULE --> EVIDENCE[Allowlisted evidence bundle]
+    JFR --> EVIDENCE
+    EVIDENCE --> AI[Optional local Ollama]
+    AI --> VALIDATE[Schema and grounding checks]
+    VALIDATE --> OUT
 ```
 
 | Module | Responsibility |
 |---|---|
 | sentinel-core | Scheduled sampling, bounded work queue, JMX collection, and immutable snapshots |
 | sentinel-detector | Deterministic deadlock, heap, and executor saturation rules and incident evidence |
-| sentinel-ai | Optional localhost Ollama generate API; analysis only |
+| sentinel-ai | Typed advisory evidence, loopback Ollama transport, schema and grounding validation |
 | sentinel-cli | Terminal output and controlled deadlock, executor, and CPU workloads |
 
 The CLI currently monitors its **own** JVM. A deadlock demonstration launches two daemon
@@ -52,7 +55,7 @@ details for at most eight of those platform threads, ordered by ID. Each detail
 includes the thread state, lock and owner when present, and at most 12 stack
 frames. A thread that disappears before lookup can have an ID without details.
 The detector attaches the details to the deadlock incident. The CLI renders them
-locally, and the Ollama prompt continues to use the existing rule evidence.
+locally. The AI bundle includes only the deadlocked-thread count and rule metadata.
 
 JFR records the current JVM only when enabled. It records for the selected
 window, caps retained recording data at 16 MiB by JFR chunk, and saves the dump
@@ -78,6 +81,25 @@ pressure incident from this single measurement. For both new workloads, a JFR
 recording starts before the demo and has a scheduled stop deadline. If the
 workload misses that deadline, no purported full-workload artifact is saved.
 JFR counts are observations for the recorded JVM and do not establish causation.
+
+## Advisory processing
+
+The CLI maps numeric JMX, executor, CPU, and JFR values into an immutable
+\`EvidenceBundle\` with stable IDs. Rule adapters copy the code, severity, and
+capture time into predefined predicates with explicit supporting metric IDs.
+Unavailable measurements are marked \`not_collected\`. Raw incident text and
+thread details are redacted at the request boundary.
+
+The CLI retains the first incident-bearing JMX sample, or the measured workload
+snapshot for the executor and CPU demos. It augments this evidence with available
+JFR event counts and sends one request after collection and recording complete.
+The sampler and its queue are released before model inference.
+
+The AI module submits a schema with a bounded request to loopback Ollama. It
+parses the HTTP response envelope and the report JSON separately. The validator
+checks required fields, text and list sizes, the incident classification, evidence
+references, and quantitative prose. On failure, the CLI displays the deterministic
+report. Valid output remains advisory and is rendered separately from observed facts.
 
 ## Limits of the starter
 - No remote JVM attachment or distributed agent.

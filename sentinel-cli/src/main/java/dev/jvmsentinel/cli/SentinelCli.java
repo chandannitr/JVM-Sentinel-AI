@@ -1,6 +1,6 @@
 package dev.jvmsentinel.cli;
 
-import dev.jvmsentinel.ai.OllamaIncidentExplainer;
+import dev.jvmsentinel.ai.EvidenceBundle;
 import dev.jvmsentinel.core.AsyncMetricsPipeline;
 import dev.jvmsentinel.core.JfrDiagnostics;
 import dev.jvmsentinel.core.JmxMetricsCollector;
@@ -8,17 +8,22 @@ import dev.jvmsentinel.core.JvmSnapshot;
 import dev.jvmsentinel.detector.ExecutorSaturationDetector;
 import dev.jvmsentinel.detector.Incident;
 import dev.jvmsentinel.detector.RuleBasedIncidentDetector;
-import java.net.URI;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** CLI entrypoint; samples only its own JVM in this starter. */
 public final class SentinelCli {
     private SentinelCli() { }
 
     public static void main(String[] args) throws Exception {
+        run(args, AdvisoryOutput::local);
+    }
+
+    static void run(String[] args, AdvisoryOutput.Analysis analysis) throws Exception {
         boolean demoDeadlock = false;
         boolean demoExecutor = false;
         boolean demoCpu = false;
@@ -100,10 +105,11 @@ public final class SentinelCli {
         var options = new SamplingOptions(demoDeadlock, ai, synchronous, demoBackpressure, iterations, intervalMs);
         boolean workloadDemo = demoExecutor || demoCpu;
         boolean executorDemo = demoExecutor;
-        var incidents = new ArrayList<Incident>();
+        var evidence = new AtomicReference<EvidenceBundle>();
+        Map<String, Long> jfrCounts = Map.of();
         JfrDiagnostics.Workload workload = workloadDemo
-                ? () -> runWorkload(executorDemo, cpuDuration, incidents)
-                : () -> sample(options);
+                ? () -> runWorkload(executorDemo, cpuDuration, options.ai(), evidence)
+                : () -> sample(options, evidence);
         if (jfrSeconds == null) {
             workload.run();
         } else {
@@ -112,22 +118,31 @@ public final class SentinelCli {
                     ? JfrDiagnostics.recordCovering(window, jfrOutput, workload)
                     : JfrDiagnostics.record(window, jfrOutput, workload);
             System.out.println("JFR recording: " + recording);
+            if (jfrSummary || ai) {
+                try {
+                    jfrCounts = JfrDiagnostics.summarize(recording);
+                } catch (IOException failure) {
+                    if (jfrSummary) throw failure;
+                    System.err.println("JFR evidence unavailable. Continuing with measured workload evidence.");
+                }
+            }
             if (jfrSummary) {
                 System.out.println("Recorded JFR events:");
-                JfrDiagnostics.summarize(recording).forEach(
-                        (event, count) -> System.out.printf("  %s: %d%n", event, count));
+                jfrCounts.forEach((event, count) -> System.out.printf("  %s: %d%n", event, count));
             }
         }
-        if (workloadDemo && ai) {
-            explain(incidents);
+        if (ai) {
+            AdvisoryOutput.print(CliEvidence.withJfr(evidence.get(), jfrCounts), analysis);
         }
     }
 
-    private static void runWorkload(boolean executorDemo, int cpuDuration, List<Incident> incidents) throws Exception {
+    private static void runWorkload(boolean executorDemo, int cpuDuration, boolean ai,
+                                    AtomicReference<EvidenceBundle> evidence) throws Exception {
         if (executorDemo) {
             var snapshot = ExecutorSaturationScenario.run();
-            new ExecutorSaturationDetector().detect(snapshot).ifPresent(incidents::add);
+            var incidents = new ExecutorSaturationDetector().detect(snapshot).stream().toList();
             printIncidents(incidents);
+            if (ai) evidence.set(CliEvidence.executor(snapshot, incidents));
             return;
         }
         var result = CpuLoadScenario.run(Duration.ofSeconds(cpuDuration));
@@ -135,12 +150,13 @@ public final class SentinelCli {
                 ? result.threadCpuNanos().getAsLong() + " ns" : "unavailable";
         System.out.printf("CPU workload: elapsed=%d ns, operations=%d, thread CPU time=%s, checksum=%016x%n",
                 result.elapsedNanos(), result.operations(), cpuTime, result.checksum());
+        if (ai) evidence.set(CliEvidence.cpu(result));
     }
 
     private record SamplingOptions(boolean demoDeadlock, boolean ai, boolean synchronous,
                                    boolean demoBackpressure, int iterations, long intervalMs) { }
 
-    private static void sample(SamplingOptions options) throws Exception {
+    private static void sample(SamplingOptions options, AtomicReference<EvidenceBundle> evidence) throws Exception {
         if (options.demoDeadlock()) {
             DeadlockScenario.start();
         }
@@ -149,7 +165,7 @@ public final class SentinelCli {
 
         if (options.synchronous()) {
             for (int index = 0; index < options.iterations(); index++) {
-                report(detector, collector.collect(), options.ai());
+                report(detector, collector.collect(), options.ai(), evidence);
                 if (index + 1 < options.iterations()) {
                     Thread.sleep(options.intervalMs());
                 }
@@ -159,7 +175,7 @@ public final class SentinelCli {
 
         boolean slowHandler = options.demoBackpressure();
         var pipeline = new AsyncMetricsPipeline(collector, snap -> {
-            report(detector, snap, options.ai());
+            report(detector, snap, options.ai(), evidence);
             if (slowHandler) {
                 try {
                     Thread.sleep(50);
@@ -182,14 +198,16 @@ public final class SentinelCli {
         }
     }
 
-    private static void report(RuleBasedIncidentDetector detector, JvmSnapshot snap, boolean ai) {
+    private static void report(RuleBasedIncidentDetector detector, JvmSnapshot snap, boolean ai,
+                               AtomicReference<EvidenceBundle> evidence) {
         List<Incident> incidents = detector.detect(snap);
         System.out.printf("[%s] Heap: %d/%d bytes (%.1f%%), Live threads: %d%n",
                 snap.capturedAt(), snap.heapUsedBytes(), snap.heapMaxBytes(),
                 snap.heapUsageRatio() * 100, snap.liveThreadCount());
         printIncidents(incidents);
-        if (ai) {
-            explain(incidents);
+        // Retain one incident-bearing snapshot for a single request after the sampler terminates.
+        if (ai && !incidents.isEmpty() && evidence.get() == null) {
+            evidence.set(CliEvidence.jvm(snap, incidents));
         }
     }
 
@@ -215,20 +233,6 @@ public final class SentinelCli {
         }
     }
 
-    private static void explain(List<Incident> incidents) {
-        String model = System.getenv().getOrDefault("OLLAMA_MODEL", "llama3.2:3b");
-        try {
-            var explainer = new OllamaIncidentExplainer(
-                    URI.create("http://127.0.0.1:11434/api/generate"), model);
-            System.out.println("AI analysis:\n" + explainer.explain(incidents));
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-        } catch (Exception failure) {
-            System.err.println("Local AI unavailable: " + (failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage())
-                    + " (start Ollama and pull the model, or omit --ai)");
-        }
-    }
-
     private static void printHelp() {
         System.out.println("""
                 JVM Sentinel AI — local Java 21 monitoring starter
@@ -243,15 +247,16 @@ public final class SentinelCli {
                   --async               Use bounded async sampling (default)
                   --sync                Collect and report on the calling thread
                   --demo-backpressure   Slow async reporting to demonstrate queue saturation
-                  --ai                  Ask local Ollama to explain detected incidents
+                  --ai                  Ask local Ollama for a validated, advisory report
                   --record-jfr=N        Record the current JVM for 1..60 seconds
                   --jfr-output=DIR      Recording directory (default .local-build/jfr)
                   --jfr-summary         Print event counts for the new recording
                 Examples:
                   --demo-deadlock
                   --demo-executor-saturation --record-jfr=5 --jfr-summary
-                  --demo-cpu-load --record-jfr=5 --jfr-summary
-                Ollama model: OLLAMA_MODEL environment variable (default llama3.2:3b)
+                  --demo-cpu-load --record-jfr=5 --jfr-summary --ai
+                Optional AI: ollama pull llama3.2:3b, then run ollama serve if needed.
+                OLLAMA_MODEL overrides the model. Rule evidence is available without Ollama.
                 """);
     }
 }
